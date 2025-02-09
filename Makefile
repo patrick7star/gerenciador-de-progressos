@@ -1,13 +1,14 @@
 
-LIB_E 		= $(CCODES)/utilitarios/bin/static
-LIB_C 		= $(CCODES)/utilitarios/bin/shared
-HEADERS 		= $(CCODES)/utilitarios/include
+LIB_E 		= $(CCODES)/utilitarios-em-c/bin/static
+LIB_C 		= $(CCODES)/utilitarios-em-c/bin/shared
+HEADERS 		= $(CCODES)/utilitarios-em-c/include
 DESTINO 		= lib/
 
 codigos 		= progresso led monitor
 objetos 		= auxiliar progresso led monitor
 bibliotecas = libteste libtempo liblegivel libterminal libconversao
 cabecalhos	= teste tempo legivel terminal conversao
+
 
 # Compila tudo que existe(processo demorado).
 all: importa-bibliotecas compila-objetos \
@@ -62,7 +63,7 @@ obj-test-led:
 	@echo "Compilado 'test-led.o' em 'build'."
 
 obj-test-monitor:
-	clang++ -std=gnu++17 -I$(HEADERS) -D__UT_MONITOR__ \
+	clang++ -Wall -O0 -std=gnu++2a -I$(HEADERS) -D__unit_tests__ \
 		-c -o build/test-monitor.o src/monitor.cpp
 
 
@@ -71,8 +72,7 @@ test-progresso: obj-test-progresso
 	@clang++ -O0 -std=gnu++17 -Wall -I$(HEADERS) \
 		-o bin/tests/ut_progresso build/test-progresso.o build/led.o \
 		build/monitor.o build/auxiliar.o \
-		-lcurses -L$(LIB_C) -lteste -ltempo -llegivel \
-		-lterminal -lconversao
+		-lcurses -L$(LIB_C) -lteste -ltempo -llegivel -lterminal -lconversao
 
 test-led: obj-test-led
 	@mkdir -vp bin/tests
@@ -84,9 +84,8 @@ test-led: obj-test-led
 
 test-monitor: obj-test-monitor
 	@mkdir -vp bin/tests
-	@clang++ -O0 -std=gnu++17 -Wall -I$(HEADERS) \
-		-o bin/tests/ut_monitor build/test-monitor.o build/led.o \
-		build/progresso.o build/auxiliar.o \
+	@clang++ -I$(HEADERS) -o bin/tests/ut_monitor build/test-monitor.o \
+		build/led.o build/progresso.o build/auxiliar.o \
 		-lcurses -L$(LIB_C) -lteste -ltempo -llegivel -lterminal -lconversao
 	
 run-monitor:
