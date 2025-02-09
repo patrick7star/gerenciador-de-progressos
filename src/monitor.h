@@ -51,19 +51,19 @@ namespace monitor {
       // Função ou nome do que o progresso representa.
       LED rotulo;
 
+      /* Dados do referentes a onde está o progresso, e também sua 
+       * representação gráfica. */
+      Progresso bar;
+
       // Tempo de partida da criação.
       time_point<Clock> criacao;
 
       // Acrescimo do percentual à cada 400 milisegundos.
       double taxa;
 
-      /* Dados do referentes a onde está o progresso, e também sua 
-       * representação gráfica. */
-      Progresso bar;
-
-      // Construtor personalizado, com todos parâmetros existentes.
-      /* Legendas:
+      /* Construtor personalizado, com todos parâmetros existentes.
        *
+       * Legendas:
        *    - label: mensagem que fica as vezes rotacionando, basicamente a 
        *             descrição do progresso em sí. 
        *    - a: valor que o progresso é registrado na lista.
@@ -76,22 +76,41 @@ namespace monitor {
       Entrada(string label, size_t a, size_t T, uint8_t vC, uint8_t bC,
         double tI, time_point<Clock> tC);
       Entrada (string label, size_t t);
-      Entrada (path caminho_pipe);
+      // Entrada (path caminho_pipe);
       Entrada();
 
       // Métodos que serializam e deserializam 'Entrada'.
       auto serializa() -> queue<uint8_t>;
       auto deserializa(queue<uint8_t>&) -> Entrada;
 
-      /* Atualiza os valores daqui via 'named pipe'. Geralmente 'entradas'
-       * como esta são de outros processos. */
-      bool atualiza_via_pipe();
-
-      // Sobrecarga de operadores:
+      /* Sobrecarga de operadores. Você pode comparar se uma entrada é menor
+       * ou igual a outra. Também pode incrementar uma unidade ou mais 
+       * o progresso interno dela. */
       bool operator<(Entrada& obj);
       bool operator>(Entrada& obj); 
       Entrada& operator+=(size_t q);
       Entrada& operator++();
+   };
+
+   class EntradaPipe: public Entrada {
+   /* Uma instância da entrada que gera instâncias de forma dinâmica, todas
+    * elas são recuperadas via named pipes. Isso nem é uma coisa apenas pra 
+    * C/ou C++, será aceitos dados linguagens, se elas seguirem o protocolo
+    * comum. */
+   public:
+      // Como agora é multiprocesso, será necessário registrar o 'pid';
+      pid_t ID;
+      /* O caminho do 'named pipe' é onde os dados serão lidos pelo o painel
+       * geral, e onde o proprietário da 'EntradaPipe' envia atualizações
+       * do estágio do tipo de dado. O inteiro armazena o identificador 
+       * quando tal 'canal' for aberto. */
+      path canal; int fd;
+
+      // Operações extra para o tipo:
+      bool operator==(EntradaPipe& obj);
+
+      auto serializa() -> queue<uint8_t>;
+      auto deserializa(queue<uint8_t>&) -> Entrada;
    };
 
    class Tela {
@@ -99,33 +118,43 @@ namespace monitor {
     * Entrada. O objeto executa a biblioteca gráfica ncurses, esta embutida
     * nele, e também a finaliza. É um "embrulho" dela, porém sem recorrer
     * a herança, e especializada em manipular Entradas. */
-      private:
-         WINDOW* janela;
-         // Velocidade da atualização de quadros da tela.
-         int VELOCIDADE = 800;
-         // Progressos que estão sendo mostrados na tela no momento.
-         vector<Entrada> lista;
-         // Atual tipo de ordenação que tais entradas estão submetidas.
-         Ordenacao ordem;
-         // Algumas informações gerais sobre o programa.
-         // string status;
+   private:
+      // Instância da janela iniciada do 'ncurses'.
+      WINDOW* janela;
 
-         // Métodos deste tipo de objeto.
-         void ordena();
-         void desenha_status();
+      // Velocidade da atualização de quadros da tela.
+      int VELOCIDADE = 800;
 
-      public:
-         // Construtores e desconstrutores:
-         Tela();
-         ~Tela();
+      // Progressos que estão sendo mostrados na tela no momento.
+      vector<Entrada> lista;
+      // Fila de entradas referentes a 'named pipes'.
+      queue<EntradaPipe> fila;
 
-         void adiciona(Entrada&& obj);
-         void renderiza();
-         bool tudo_finalizado();
-         array<int, 2> dimensao(); 
-         void altera_ordenacao();
+      // Atual tipo de ordenação que tais entradas estão submetidas.
+      Ordenacao ordem;
 
-         // Sobrecarga de alguns operadores:
-         Entrada& operator[](string nome);
+      /* Todos aquelas entradas estrangeiras que requisatarem acessar o 
+       * Painel, precisam enviar a "EntradaPipe" inicialmente para cá, apenas
+       * uma vez, depois de processado e inserido na fila, o canal próprio
+       * dela que servirá de comunicação. */
+      path canal_de_insercao; int fd;
+
+      // Métodos deste tipo de objeto.
+      void ordena();
+      void desenha_status();
+
+   public:
+      // Construtores e desconstrutores:
+      Tela();
+      ~Tela();
+
+      void adiciona(Entrada&& obj);
+      void renderiza();
+      bool tudo_finalizado();
+      array<int, 2> dimensao(); 
+      void altera_ordenacao();
+
+      // Sobrecarga de alguns operadores:
+      Entrada& operator[](string nome);
    };
 }

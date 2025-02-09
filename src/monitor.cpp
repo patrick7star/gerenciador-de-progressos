@@ -1,10 +1,15 @@
 #include "monitor.h"
+// Outros módulos do projeto:
 #include "auxiliar.h"
+// Bibliotecas padrões do C++:
 #include <algorithm>
 #include <numeric>
 #include <ncurses.h>
 #include <cassert>
+// Bibliotecas do Unix:
+#include <unistd.h>
 
+// Puxando para fora do namespace tal funções ou objetos:
 using std::string;
 using std::cout;
 using std::endl;
@@ -188,12 +193,18 @@ auto monitor::Entrada::deserializa(queue<uint8_t>& In) -> Entrada {
    return Entrada();
 }
 
-
-
 /* === === ===  === === === === === === === === === === === === === === ===
  *                   Implementação dos Métodos do
  *                         Tipo de Dado Tela
  * === === ===  === === === === === === === === === === === === === === = */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <tuple>
+
+using monitor::path;
+using std::tuple;
+
 static void define_todas_paletas_de_cores(void) 
 {
    const int16_t TRANSPARENTE = -1;
@@ -206,12 +217,7 @@ static void define_todas_paletas_de_cores(void)
    init_pair(AzulMarinho, COLOR_CYAN, TRANSPARENTE);
 }
 
-monitor::Tela::Tela() 
-{
-   cout << "Decide a taxa de crescimento como a ordem padrão.\n";
-   this->lista = vector<Entrada>();
-   this->ordem = Ordenacao::TaxaDeCrescimento;
-
+static void configura_janela_iniciada(WINDOW* janela) {
    #ifdef __debug__
    cout << "É possível mudar alguma cor?";
    if (can_change_color())
@@ -220,25 +226,96 @@ monitor::Tela::Tela()
       cout << "Não" << endl;
    #endif
 
+   // Ativa cores e permite a transparência.
+   start_color();
+   use_default_colors();
+   // Omite o cursor. Também, acaba com o piscar de teclas pressionadas.
+   curs_set(0);
+   noecho();
+   // A fonte será sempre em "negrito".
+   attrset(A_BOLD);
+   // Aceitas teclas especiais, também não bloquea precionamento de teclas.
+   keypad(janela, true);
+   nodelay(janela, true);
+}
+
+static tuple<path, int> criacao_do_cana_de_insercao(void) {
+   const char* const NOME_NP = "canal_do_painel";
+   int file_descriptor;
+
+   if (mkfifo(NOME_NP, 0664) == 0) {
+      cout << "Canal de inserção criado com sucesso.\n";
+      file_descriptor = open(NOME_NP, O_RDONLY | O_NONBLOCK);
+
+      if (file_descriptor == -1) {
+         switch(errno) {
+         case EEXIST:
+            cout << "O canal já existe!\n";
+            break;
+         default:
+            cout << "Outro erro ainda não trabalhado!\n";
+         }
+      }
+   } else 
+      cout << "Canal de inserção não criado!\n";
+   return std::make_tuple(path(NOME_NP), file_descriptor);
+}
+
+monitor::Tela::Tela() 
+{
+   cout << "Decide a taxa de crescimento como a ordem padrão.\n";
+   this->lista = vector<Entrada>();
+   this->ordem = Ordenacao::TaxaDeCrescimento;
+
    /* Agora, tanto a criação como configuração, referente a janela(tela)
     * do ncurses -- a parte gráfica. */
    this->janela = initscr();
 
    // Configuração geral da janela trabalhada.
-   start_color();
-   use_default_colors();
-   curs_set(0);
-   noecho();
-   attrset(A_BOLD);
-   keypad(this->janela, true);
-   nodelay(this->janela, true);
-
+   configura_janela_iniciada(this->janela);
    // Configurando as cores do programa...
    define_todas_paletas_de_cores();
+
+   /* Cria também o 'named pipe' que aceita 'Entradas' forasteiras. Registra
+    * o caminho, e o abre também. */
+   auto tupla = criacao_do_cana_de_insercao();
+   std::tie(this->canal_de_insercao, this->fd) = tupla;
 }
 
 monitor::Tela::~Tela() {
+   // Então remove o canal de comunicação.
+   const char* pathname = this->canal_de_insercao.c_str();
+
+   // Finaliza a janela do ncurses.
    endwin();
+   // Finaliza o namedpipe ...
+   if (close(this->fd) == 0)
+      cout << "O named pipe foi fechado com sucesso.\n";
+
+   if (unlink(pathname) == 0)
+      cout << "Named pipe " << pathname << " eliminado com sucesso.\n";
+   else {
+      cout << "\nAlgum erro ocorreu na eliminação de " << pathname << endl;
+      cout << this->canal_de_insercao << std::endl;
+
+      switch (errno) {
+      case EACCES:
+         cout << "Sem acesso de permissão de escrita.\n";
+         break;
+      case EBUSY:
+         cout << "O pipe está sendo usado.\n";
+         break;
+      case ENOENT:
+         cout << "Tal arquivo não existe!\n";
+         break;
+      case EPERM:
+         cout << "É um diretório.\n";
+         break;
+      case EROFS:
+         cout << "Diretório do arquivo está no modo read-only.\n";
+         break;
+      }
+   }
    cout << "A tela foi finalizada com sucesso.\n";
 }
 
@@ -383,8 +460,36 @@ void monitor::Tela::altera_ordenacao() {
 
    this->ordem = (Ordenacao)((p + 1) % TOTAL);
 }
+/* === === ===  === === === === === === === === === === === === === === ===
+ *                   Sobrecarga de alguns métodos e novos
+ *                         para o tipo EntradaPipe
+ * === === ===  === === === === === === === === === === === === === === = */
+bool monitor::EntradaPipe::operator==(EntradaPipe& obj)
+{
+   return (obj.ID == this->ID) && (obj.fd == this->fd) 
+            && (obj.canal == this->canal);
+}
 
-#ifdef __UT_MONITOR__
+auto monitor::EntradaPipe::serializa() -> queue<uint8_t> {
+   using namespace auxiliar;
+   queue<uint8_t> Out, Out_a, Out_b, Out_c;
+   std::string caminho{this->canal.c_str()};
+
+   Out = Entrada::serializa();
+   Out_a = serializa_string(caminho);
+   Out_b = serializa_inteiro((size_t)this->fd);
+   Out_c = serializa_inteiro((size_t)this->ID);
+
+   anexa_fila(std::move(Out_a), Out);
+   anexa_fila(std::move(Out_b), Out);
+   anexa_fila(std::move(Out_c), Out);
+
+   /* Convertendo tanto o valor 'atual' do progresso, como seu valor 
+    * 'total', ambos inteiros positivos da máquina. */
+   return Out;
+}
+
+#ifdef __unit_tests__
 /* === === ===  === === === === === === === === === === === === === === ===
  *                      Testes Unitários
  * === === ===  === === === === === === === === === === === === === === = */
@@ -456,7 +561,7 @@ void construindo_por_tentativa_e_erro_tela(void)
 
    const int T = 6;
    size_t totais[T] = { 30, 500, 170, 100, 200, 300 };
-   size_t taxas[T] = {1, 9, 4, 4, 5, 2};
+   size_t taxas[T] = {2, 18, 8, 8, 10, 9};
    array<Entrada, T> entries;
    const string legendas[] = {
       "imagem_de_um_pinguim_jantando_com_um_leão.jpg",

@@ -20,6 +20,7 @@ private:
    size_t cursor;
 
 public:
+   /* Métodos construturos do tipo de dado:*/
    LED();
    LED(std::string dsc); 
    LED(std::string dsc, size_t len);

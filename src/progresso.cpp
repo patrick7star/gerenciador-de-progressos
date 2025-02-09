@@ -275,8 +275,8 @@ Progresso Progresso::deserializa(queue<uint8_t>& In)
 extern "C" {
   #include "teste.h"
 
-  void executa_testes(uint8_t, ...);
-  void executa_testes_a(bool, int, ...);
+  void executa_testes   (int, ...);
+  void executa_testes_a (bool, int, ...);
 }
 
 using std::array;
