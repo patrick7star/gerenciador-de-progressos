@@ -25,6 +25,11 @@ public:
 
 class Progresso: public Medida {
 public:
+   // Contadores do progresso.
+   size_t atual, total;
+   // Comprimento da barra de progresso.
+   uint8_t comprimento;
+
    // Construtores deste tipo de dado:
    Progresso()
       { this->total = 0; this->atual = 0; this->comprimento = 0; }
@@ -53,12 +58,6 @@ public:
    Progresso& operator+=(const size_t n);
    Progresso& operator++();
 
+   // Largura que tal pode ocupar na tela do ncurses.
    size_t largura() override;
-
-private:
-   // Contadores do progresso.
-   size_t atual, total;
-
-   // Comprimento da barra de progresso.
-   uint8_t comprimento;
 };

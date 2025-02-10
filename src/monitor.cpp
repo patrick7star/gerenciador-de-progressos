@@ -14,15 +14,7 @@ using std::string;
 using std::cout;
 using std::endl;
 using std::vector;
-using std::chrono::system_clock;
-using std::chrono::time_point;
-using std::chrono::seconds;
 using std::array;
-
-/* Larguras globais dos elementos redimensionados da entrada. A padronização
- * é uma boa prática para algo bem organizado. */
-uint8_t VISOR_LARGURA = 32;
-uint8_t BARRA_LARGURA = 41;
 
 /* === === ===  === === === === === === === === === === === === === === ===
  *                   Métodos para o Enumerador
@@ -64,133 +56,6 @@ std::string& operator<<(std::string& saida, Ordenacao enumerador) {
          break;
    }
    return saida;
-}
-
-/* === === ===  === === === === === === === === === === === === === === ===
- *                   Implementação dos Métodos do Tipo de Dado
- *          Entrada, sejam eles operadores, constrututores, e etc...
- * === === ===  === === === === === === === === === === === === === === = */
-monitor::Entrada::Entrada(string label, size_t a, size_t T, uint8_t vC, 
-  uint8_t bC, double tI, time_point<Clock> tC)
-{
-/* Construtor que pega todos parâmetros necessários.*/
-   this->rotulo = LED(label, vC);
-   this->bar = Progresso(a, T, bC);
-   this->criacao = tC;
-   this->taxa = tI;
-}
-
-monitor::Entrada::Entrada(string label, size_t t) 
-{
-   this->rotulo = LED(label, VISOR_LARGURA);
-   this->bar = Progresso(0, t, BARRA_LARGURA);
-   this->criacao = system_clock::now();
-   this->taxa = 0.0;
-}
-
-monitor::Entrada::Entrada() {
-   this->rotulo = LED("entrada temporário", VISOR_LARGURA);
-   this->bar = Progresso(0, 1, BARRA_LARGURA);
-   this->criacao = system_clock::now();
-   this->taxa = 0.0;
-}
- /* --- --- --- -- -- Sobrecarga de Operadores da Entrada --- --- --- --- */
-bool monitor::Entrada::operator<(Entrada& obj) {
-   // Medida da instância, e então medida do argumento, respectivamente.
-   auto a = this->bar.percentual();
-   auto b = obj.bar.percentual();
-
-   return a < b;
-}
-
-bool monitor::Entrada::operator>(Entrada& obj) {
-   // Medida da instância, e então medida do argumento, respectivamente.
-   auto a = this->bar.percentual();
-   auto b = obj.bar.percentual();
-
-   return a > b;
-}
-
-// monitor::Entrada& monitor::Entrada::operator+=(size_t quantia) 
-auto monitor::Entrada::operator+=(size_t quantia) -> Entrada&
-   { this->bar += quantia; return *this; }
-
-auto monitor::Entrada::operator++() -> Entrada& 
-   { this->bar += 1; return *this; }
-
-auto monitor::Entrada::serializa() -> queue<uint8_t> {
-/* A conversão de dados se dará na seguinte forma: Primeiro o texto, rótulo,
- * nome,... como você quiser chamar-lo, entretanto, antes de injetar isso
- * como bytes, é preciso armazenar de quantos bytes estamos realmente
- * falando. O próximo é os dois valores que definem o progresso, o atual
- * valor, e a meta, ambos que são inteiros positivos com tamanho da máquina.
- * A taxa do aumento percentual também é importante, não a mais, poderia
- * sim, ser computada neste atual processo, porém se já vem processado, 
- * porque fazer isso. O último ponto traduzido em bytes é o 'timestamp' que
- * criou o "progresso", ou seja, quanto tempo está executando isso, ele é
- * um inteiro com sinal, mais tamanho de máquina.
- *
- *   Seguir tal ordem é importante para futuramente a deserialização e 
- * decodificação de tal continuos array de bytes seja facilitada, ela 
- * seguirá a mesma sequência de processamento desta função aqui. */
-   using namespace auxiliar;
-
-   const int sz = sizeof(size_t);
-   queue<uint8_t> Out;
-   /* Selo de tempo quando criado tal coisa. */
-   time_t t = system_clock::to_time_t(this->criacao);
-   
-   auto Out_a = this->rotulo.serializa();
-   auto Out_b = serializa_inteiro((size_t)t); 
-   auto Out_c = serializa_decimal(this->taxa);
-   auto Out_d = this->bar.serializa();
-   /* Contabilizando o total de bytes do conjunto acima, inclusive deste
-    * aqui. A letra bem distante das demais indica que não seguirá a ordem
-    * de concatenação das demais. Ele no quesito tem que ser o primeiro
-    * a ser concatenado, pois indica o total de bytes a extrair de uma
-    * fila contendo a aglomeração de todos bytes. */
-   auto Out_z = serializa_inteiro(
-      Out_a.size() + Out_b.size() + 
-      Out_c.size() + Out_d.size() + sz
-   );
-
-   anexa_fila(std::move(Out_z), Out);
-   anexa_fila(std::move(Out_a), Out);
-   anexa_fila(std::move(Out_b), Out);
-   anexa_fila(std::move(Out_c), Out);
-   anexa_fila(std::move(Out_d), Out);
-
-   /* Convertendo tanto o valor 'atual' do progresso, como seu valor 
-    * 'total', ambos inteiros positivos da máquina. */
-   return Out;
-}
-
-auto monitor::Entrada::deserializa(queue<uint8_t>& In) -> Entrada {
-/* O esquema é seguir o procedimento acima. Como o resultado é uma fila 
- * de bytes, então os primeiros serializados, serão obviamente os primeiros
- * a serem deserializado. O primeiro aqui é o tanto de bytes que a Entrada
- * ocupa, por ser uma geração variavel foi necessário colocar tal tanto
- * de bytes codificados no começo da "linguiça de bytes". Decodificado eles
- * você pode extrair o total de bytes necessários para decodificar tal 
- * tipo. */
-   using namespace auxiliar;
-
-   auto bytes = extrai_n_bytes(In, sizeof(size_t));
-   auto total = deserializa_inteiro(bytes);
-
-   assert (In.size() >= total);
-   // Restantes do bytes a extrair, já faz tudo de uma vez só.
-   auto r = extrai_n_bytes(bytes, total);
-
-   auto rotulo  = LED::deserializa(r);
-   auto criacao = deserializa_inteiro(r);
-   auto taxa    = deserializa_decimal(r);
-   auto bar     = Progresso::deserializa(r);
-
-   // Tudo deve ter sido devidamente extraído.
-   assert (r.empty());
-
-   return Entrada();
 }
 
 /* === === ===  === === === === === === === === === === === === === === ===
@@ -239,8 +104,8 @@ static void configura_janela_iniciada(WINDOW* janela) {
    nodelay(janela, true);
 }
 
-static tuple<path, int> criacao_do_cana_de_insercao(void) {
-   const char* const NOME_NP = "canal_do_painel";
+static tuple<path, int> criacao_do_canal_de_insercao(void) {
+   const char* const NOME_NP = "inserção";
    int file_descriptor;
 
    if (mkfifo(NOME_NP, 0664) == 0) {
@@ -278,7 +143,7 @@ monitor::Tela::Tela()
 
    /* Cria também o 'named pipe' que aceita 'Entradas' forasteiras. Registra
     * o caminho, e o abre também. */
-   auto tupla = criacao_do_cana_de_insercao();
+   auto tupla = criacao_do_canal_de_insercao();
    std::tie(this->canal_de_insercao, this->fd) = tupla;
 }
 
@@ -288,13 +153,12 @@ monitor::Tela::~Tela() {
 
    // Finaliza a janela do ncurses.
    endwin();
+   cout << "A tela foi finalizada com sucesso.\n";
    // Finaliza o namedpipe ...
    if (close(this->fd) == 0)
       cout << "O named pipe foi fechado com sucesso.\n";
 
-   if (unlink(pathname) == 0)
-      cout << "Named pipe " << pathname << " eliminado com sucesso.\n";
-   else {
+   if (unlink(pathname) == -1) {
       cout << "\nAlgum erro ocorreu na eliminação de " << pathname << endl;
       cout << this->canal_de_insercao << std::endl;
 
@@ -316,7 +180,6 @@ monitor::Tela::~Tela() {
          break;
       }
    }
-   cout << "A tela foi finalizada com sucesso.\n";
 }
 
 string percentual_medio(vector<monitor::Entrada>& l)
@@ -414,7 +277,7 @@ monitor::Entrada& monitor::Tela::operator[](string nome)
  * tal busca sempre dará algo em tempo linear O(n). */
    for (Entrada& entry: this->lista) 
    {
-      string corresponde = entry.rotulo.get_texto();
+      string corresponde = entry.rotulo.texto;
 
       if (corresponde == nome)
          return entry;
@@ -460,41 +323,22 @@ void monitor::Tela::altera_ordenacao() {
 
    this->ordem = (Ordenacao)((p + 1) % TOTAL);
 }
-/* === === ===  === === === === === === === === === === === === === === ===
- *                   Sobrecarga de alguns métodos e novos
- *                         para o tipo EntradaPipe
- * === === ===  === === === === === === === === === === === === === === = */
-bool monitor::EntradaPipe::operator==(EntradaPipe& obj)
-{
-   return (obj.ID == this->ID) && (obj.fd == this->fd) 
-            && (obj.canal == this->canal);
-}
-
-auto monitor::EntradaPipe::serializa() -> queue<uint8_t> {
-   using namespace auxiliar;
-   queue<uint8_t> Out, Out_a, Out_b, Out_c;
-   std::string caminho{this->canal.c_str()};
-
-   Out = Entrada::serializa();
-   Out_a = serializa_string(caminho);
-   Out_b = serializa_inteiro((size_t)this->fd);
-   Out_c = serializa_inteiro((size_t)this->ID);
-
-   anexa_fila(std::move(Out_a), Out);
-   anexa_fila(std::move(Out_b), Out);
-   anexa_fila(std::move(Out_c), Out);
-
-   /* Convertendo tanto o valor 'atual' do progresso, como seu valor 
-    * 'total', ambos inteiros positivos da máquina. */
-   return Out;
-}
-
 #ifdef __unit_tests__
 /* === === ===  === === === === === === === === === === === === === === ===
  *                      Testes Unitários
  * === === ===  === === === === === === === === === === === === === === = */
 #include <cstring>
+#include <cstring>
 #include <chrono>
+#include <ctime>
+#include <thread>
+#include <new>
+
+using std::chrono::system_clock;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+using entrada::EntradaPipe;
+using auxiliar::queue;
 
 void experimento_varias_features_do_curses(void)
 {
@@ -552,6 +396,48 @@ void visualizacao_do_enum_ordenacao(void)
       << endl << Ordenacao::Criacao << S << (int)Ordenacao::Criacao << endl;
 }
 
+// ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~
+static uint8_t* queue_to_array(queue<uint8_t>&& q) {
+   uint8_t* seq = new uint8_t[q.size()];
+   size_t cursor = 0;
+
+   while (!q.empty()) { seq[cursor++] = q.front(); q.pop(); }
+   return seq;
+}
+
+template <typename T>
+void drop(T&& self) 
+   { /* Será automáticamente liberado aqui. */ }
+
+void progresso_paralelo(string rotulo, size_t fim) {
+   auto PAUSA = milliseconds(800);
+   auto X = EntradaPipe(path("via"), rotulo, fim); 
+
+   do {
+      X += 10;
+      X.atualiza_externo();
+      std::this_thread::sleep_for(PAUSA);
+
+   } while(X.bar.percentual() < 1.00);
+
+   drop(std::move(X));
+   std::exit(0);
+}
+
+void choca_varias_entradas_paralelas(void) {
+   if (fork() == 0)
+      progresso_paralelo(string("pacote azul"), 300);
+   else {
+      if (fork() == 0)
+         progresso_paralelo(string{"pacote vermelho"}, 200);
+      else {
+         if (fork() == 0)
+            progresso_paralelo(string{"pacote amarelo"}, 400);
+      }
+   }
+}
+
+// ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~
 void construindo_por_tentativa_e_erro_tela(void)
 {
    using namespace monitor;
@@ -562,7 +448,7 @@ void construindo_por_tentativa_e_erro_tela(void)
    const int T = 6;
    size_t totais[T] = { 30, 500, 170, 100, 200, 300 };
    size_t taxas[T] = {2, 18, 8, 8, 10, 9};
-   array<Entrada, T> entries;
+   // array<Entrada, T> entries;
    const string legendas[] = {
       "imagem_de_um_pinguim_jantando_com_um_leão.jpg",
       "volume da caixa de água do prédio(em L)",
@@ -575,6 +461,8 @@ void construindo_por_tentativa_e_erro_tela(void)
    const uint8_t cV = 38;
    const uint8_t cB = 30; 
    auto agora = system_clock::now();
+
+   choca_varias_entradas_paralelas();
 
    for (int i = 0; i < T; i++) {
       Entrada e(legendas[i], 0, totais[i], cV, cB, 0.0, agora);
@@ -600,9 +488,10 @@ void construindo_por_tentativa_e_erro_tela(void)
    } while(!screen.tudo_finalizado());
 } 
 
+
 int main(void) {
-   atuais_cores_do_curses();
-   visualizacao_do_enum_ordenacao();
+   // atuais_cores_do_curses();
+   // visualizacao_do_enum_ordenacao();
    construindo_por_tentativa_e_erro_tela();
 }
 #endif

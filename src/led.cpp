@@ -1,3 +1,4 @@
+#include "led.h"
 // Bibliotecas padrão do C++:
 #include <random>
 #include <iostream>
@@ -6,7 +7,6 @@
 #include <cstring>
 // Bibliotecas do próprio módulo:
 #include "monitor.h"
-#include "led.h"
 // Bibliotecas externas:
 extern "C" {
    #include "conversao.h"
@@ -56,14 +56,16 @@ const int N = 30;
 // Comprimento da string aleatória gerada.
 const int M = 40;
 
-LED::LED()
-{
+/* === === ===  === === === === === === === === === === === === === === ===
+ *                 Construtores/e Destrutor do LED
+ * === === ===  === === === === === === === === === === === === === === = */
+LED::LED() {
    this->texto = string_aleatoria(M);
    this->roleta = concatena_em_si_propria(this->texto, N);
 
    /* Computando o comprimento do visor do LED... */
    float P = 0.43;
-   size_t t = texto.length();
+   size_t t = this->texto.length();
    this->comprimento = (size_t)((float)t * P);
    this->cursor = 0;
 }
@@ -91,7 +93,9 @@ LED::LED(string dsc, size_t len) {
    this->cursor = 0;
 }
 
-
+/* === === ===  === === === === === === === === === === === === === === ===
+ *                         Métodos do LED 
+ * === === ===  === === === === === === === === === === === === === === = */
 string LED::exibe()
 {
 /*   Retorna a string, baseado no comprimento do LED, ele retorna a volta
