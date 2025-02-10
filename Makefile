@@ -49,7 +49,6 @@ importa-bibliotecas-i: $(bibliotecas) $(cabecalhos)
 compila-objetos: $(objetos)
 	@echo "Todos objetos foram compilados em 'build'."
 
-
 compila-testes-unitarios: compila-objetos test-progresso teste-led test-monitor
 	@echo "\nCompilando todos testes unitários ...\n"
 
@@ -63,8 +62,9 @@ obj-test-led:
 	@echo "Compilado 'test-led.o' em 'build'."
 
 obj-test-monitor:
-	clang++ -Wall -O0 -std=gnu++2a -I$(HEADERS) -D__unit_tests__ \
+	clang++ -Wall -O0 -std=gnu++17 -I$(HEADERS) -D__unit_tests__ \
 		-c -o build/test-monitor.o src/monitor.cpp
+
 
 
 test-progresso: obj-test-progresso
@@ -82,9 +82,24 @@ test-led: obj-test-led
 		-lterminal -lconversao
 	@echo "Compilado o teste 'ut_led' em 'bin/tests'."
 
-test-monitor: obj-test-monitor
+test-monitor: obj-test-monitor obj-entrada
 	@mkdir -vp bin/tests
 	@clang++ -I$(HEADERS) -o bin/tests/ut_monitor build/test-monitor.o \
+		build/led.o build/progresso.o build/auxiliar.o build/entrada.o \
+		-lcurses -L$(LIB_C) -lteste -ltempo -llegivel -lterminal -lconversao
+
+# --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
+obj-entrada:
+	clang++ -I$(HEADERS) -O3 -std=gnu++17 -Wall \
+		-c -o build/entrada.o src/entrada.cpp
+
+obj-test-entrada:
+	clang++ -Wall -O0 -std=gnu++17 -I$(HEADERS) -D__unit_tests__ \
+		-c -o build/test-entrada.o src/entrada.cpp
+
+test-entrada: obj-test-entrada
+	@mkdir -vp bin/tests
+	@clang++ -I$(HEADERS) -o bin/tests/ut_entrada build/test-entrada.o \
 		build/led.o build/progresso.o build/auxiliar.o \
 		-lcurses -L$(LIB_C) -lteste -ltempo -llegivel -lterminal -lconversao
 	
