@@ -1,34 +1,69 @@
-
-/*   Neste momento estou pensando numa janela ncurses, carregando múltiplas 
- * barras de progressos ao mesmo tempo. Como nomes na esquerda sobre o que
- * elas represetam, e na direita seu progresso percentual gráfico, e o 
- * margem numérica também. 
- *
- *   Isso tem como objetivo como um monitor que visualiza multiplos
- * carregamentos em plano de fundo, de um programa, ou de vários de uma vez
- * só. Já que a lib deste, pode ser copiado para vários programas, como uma
- * lib externa, ou pode, via seu binário, mostrar vários progressos, de 
- * vários programas diferentes, claro, se eles estiverem rodando, e acessar
- * corretamente os protocolos que permitem isso.
+/*   Estou reescrevendo o 'painel de progressos'. O outro ficava muito 
+ * complexo, sem nunca ter uma versão final. Por isso, ao invés de tentar 
+ * implementar algo já bastante robusto para futuras modificações em 
+ * primeiro, vou tentar implementar algo funcional, para depois ir adicioando
+ * novas features, e tentando manter a compatibilidade.
  */
 
-#include <ncurses.h>
-#include <string>
+// Biblioteca padrão em C++:
+#include <array>
+// Antiga biblioteca do C:
+#include <cassert>
+// Bibliotecas externas:
+// GNU library of POSIX:
+// Outros módulos:
+#include "entrada.hpp"
+#include "painel.hpp"
+
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                         Construção do Entrada
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+
+
+#if defined(__unit_tests__) && defined(__linux__)
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                         Testes Unitários 
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+#include <array>
+#include <thread>
 #include <iostream>
-#include <vector>
-// Códigos de outros módulos:
-#include "progresso.hpp"
+
+constexpr int QTD = 8;
 
 using namespace std;
 
-class Monitor {
-private:
-   uint32_t quantia;
-   vector<Progresso> lista;
-   WINDOW* janela;
-};
+void versao_debug(void) {
+   const char* label = "item formado aleatóriamente";
+   array<Entrada, QTD> In;
+   PainelDeProgresso painel;
+   char tecla = '\0';
 
+   for (auto& entry: In)
+      painel.insere(entry);
 
-int main() {
-   teste_do_progresso();
+   // Loop continuo de renderização.
+   do {
+      tecla = getch();
+
+      painel.renderiza();
+      napms(400);
+      painel.incrementa();
+   
+   } while(tecla != 's' && !painel.todos_progressos_finalizados());
 }
+
+void incremento_arbitrario_da_entrada(void) {
+   Entrada input;
+
+   for (int n = 1; n <= 10; n++) {
+      cout << input << endl;
+      ++input;
+   }
+}
+
+int main(int qtd, char* args[], char* vars[]) 
+{
+   versao_debug();
+   // incremento_arbitrario_da_entrada();
+}
+#endif

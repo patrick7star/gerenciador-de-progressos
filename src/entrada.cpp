@@ -1,405 +1,375 @@
-// ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~
 #include "entrada.hpp"
-// Outros módulos do projeto:
-#include "auxiliar.h"
-// Bibliotecas padrões do C++:
-#include <algorithm>
-#include <numeric>
-#include <sstream>
-#include <cassert>
-// Bibliotecas do Unix:
-#include <ncurses.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 
-// Puxando para fora do namespace tal funções ou objetos:
-using std::string;
-using std::stringstream;
-using std::cout;
-using std::endl;
-using std::ostream;
-using std::chrono::system_clock;
-using std::chrono::time_point;
-using std::chrono::seconds;
-using namespace auxiliar;
+using namespace std;
 
-/* Larguras globais dos elementos redimensionados da entrada. A padronização
- * é uma boa prática para algo bem organizado. */
-uint8_t VISOR_LARGURA = 32;
-uint8_t BARRA_LARGURA = 41;
+const string ESPACO("  ");
+// Comprimento da barra de progresso.
+const int COMPRIMENTO = 28;
 
-/* === === ===  === === === === === === === === === === === === === === ===
- *                   Implementação dos Métodos do Tipo de Dado
- *          Entrada, sejam eles operadores, constrututores, e etc...
- * === === ===  === === === === === === === === === === === === === === = */
-entrada::Entrada::Entrada(
-  string label, size_t a, size_t T, uint8_t vC, uint8_t bC, double tI, 
-  time_point<Clock> tC
-){
-/* Construtor que pega todos parâmetros necessários.*/
-   this->rotulo = LED(label, vC);
-   this->bar = Progresso(a, T, bC);
-   this->criacao = tC;
-   this->taxa = tI;
+
+
+Entrada::Entrada(const string rotulo, size_t atual, size_t total) 
+{ 
+   this->rotulo = rotulo; 
+   this->atual = atual; 
+   this->total = total; 
 }
 
-entrada::Entrada::Entrada(string label, size_t t) {
-   this->rotulo = LED(label, VISOR_LARGURA);
-   this->bar = Progresso(0, t, BARRA_LARGURA);
-   this->criacao = system_clock::now();
-   this->taxa = 0.0;
+static string comando_fortune_string(void) {
+/* Faz da string do programa 'fortunate' um rótulo de amostra para testar
+ * o programa que está se criando. */
+   const int MAX = 500;
+   FILE* saida;
+   char buffer[MAX];
+   int lido;
+
+   saida = popen("fortune -n 170", "r");
+   lido = fread(buffer, sizeof(char), MAX, saida);
+   pclose(saida);
+
+   // Substituindo quebras de linhas por motivo de compatibilidade.
+   for (int q = 0; q < lido; q++) {
+      char a = buffer[q];
+
+      if (a == '\n' || a == '\t' || a == '\b' || a == '\r')
+         buffer[q] = '*';
+   }
+
+   return string(buffer);
 }
 
-entrada::Entrada::Entrada() {
-   this->rotulo = LED("entrada temporário", VISOR_LARGURA);
-   this->bar = Progresso(0, 1, BARRA_LARGURA);
-   this->criacao = system_clock::now();
-   this->taxa = 0.0;
-}
-// ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~
+Entrada::Entrada(void) {
+/* Usa o construtor 'default' para criar uma amostra, isso, ao menos na
+ * versão de 'debug' deste programa. */
+   using Distribuicao = uniform_int_distribution<size_t>;
 
-bool entrada::Entrada::operator<(Entrada& obj) {
-   // Medida da instância, e então medida do argumento, respectivamente.
-   auto a = this->bar.percentual();
-   auto b = obj.bar.percentual();
+   random_device motor;
+   Distribuicao seletor(0, 300);
 
-   return a < b;
-}
-
-bool entrada::Entrada::operator>(Entrada& obj) {
-   // Medida da instância, e então medida do argumento, respectivamente.
-   auto a = this->bar.percentual();
-   auto b = obj.bar.percentual();
-
-   return a > b;
+   this->rotulo = comando_fortune_string();
+   this->total = seletor(motor);
+   this->atual = seletor(motor);
+   
+   while (this->atual > this->total)
+      (*this).atual = seletor(motor);
 }
 
-auto entrada::Entrada::operator+=(size_t quantia) -> Entrada&
-   { this->bar += quantia; return *this; }
 
-auto entrada::Entrada::operator++() -> Entrada& 
-   { this->bar += 1; return *this; }
-// ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~~~ ~
+void Entrada::desenha(WINDOW* janela, int linha)
+{
+// Constrói a formatação do ítem na janela do ncurses.
+   ostringstream fmt_a, fmt_bar, fmt_label;
+   // Comprimento da barra de progresso.
+   const int COMPRIMENTO = 28;
+   // Total desta barra que foi carregado.
+   int QUANTIA = (int)(COMPRIMENTO * this->percentual());
+   int total_digitos = (int)(floor(log10(this->total)) + 1);
 
-auto entrada::Entrada::serializa() -> queue<uint8_t> {
-/* A conversão de dados se dará na seguinte forma: Primeiro o texto, rótulo,
- * nome,... como você quiser chamar-lo, entretanto, antes de injetar isso
- * como bytes, é preciso armazenar de quantos bytes estamos realmente
- * falando. O próximo é os dois valores que definem o progresso, o atual
- * valor, e a meta, ambos que são inteiros positivos com tamanho da máquina.
- * A taxa do aumento percentual também é importante, não a mais, poderia
- * sim, ser computada neste atual processo, porém se já vem processado, 
- * porque fazer isso. O último ponto traduzido em bytes é o 'timestamp' que
- * criou o "progresso", ou seja, quanto tempo está executando isso, ele é
- * um inteiro com sinal, mais tamanho de máquina.
- *
- *   Seguir tal ordem é importante para futuramente a deserialização e 
- * decodificação de tal continuos array de bytes seja facilitada, ela 
- * seguirá a mesma sequência de processamento desta função aqui. */
+   // Criando a formatação da parte que diz sobre a quantia total/e a atual.
+   fmt_a.width(total_digitos);
+   fmt_a << (int)this->atual;
+   fmt_a << "/";
+   fmt_a << (int)this->total; 
+   fmt_a << ESPACO.c_str();
+   /* Criando uma formatação de barra de progresso em sí. */
+   fmt_bar << '[';
+   for (int n = 1; n < COMPRIMENTO; n++) {
+      if (n < QUANTIA)
+         fmt_bar << 'o';
+      else
+         fmt_bar << '.';
+   }
+   fmt_bar << ']';
+   fmt_bar.precision(3);
+   fmt_bar.width(5);
+   fmt_bar << this->percentual() * 100.0; 
+   fmt_bar << '%';
+   // Rótulo. Tenta encurtar se for longo demais.
+   if (this->rotulo.length() > 50) {
+      int count = 1;
+      for (char& letra: this->rotulo) {
+         if (count++ > 50)
+            break;
+         fmt_label << letra;
+      }
+      fmt_label << ESPACO;
+      fmt_label << "...";
+      fmt_label << ESPACO;
+   } else 
+      fmt_label << this->rotulo;
+
+   // Desenha tudo formatado acima na telinha do ncurses.
+   move(linha, 2);
+   addstr(fmt_label.str().c_str());
+   move(linha, COLS - (fmt_a.str().length() + fmt_bar.str().length() + 2));
+   addstr(fmt_a.str().c_str());
+   addstr(fmt_bar.str().c_str());
+}
+
+float Entrada::percentual(void) {
+/* Computa percentual já crescido da entrada. */
+   float a = this->atual;
+   float t = this->total;
+
+   return a / t;
+}
+
+void Entrada::taxa_de_crescimento_a(void) {
+/* Está taxa de crescimento leva em conta, intervalos de progressos definidos
+ * para acionar uma nova velocidade de crescimento, que provavelmente é 
+ * menor que a anterior. */
+   // Percentual que ainda falta para terminar.
+   float p = this->percentual();
+   float P = 1.0 - p;
+   // Quantia que tal "percentual faltante" significa.
+   size_t T       = this->total;
+   size_t R       = (size_t)(P * T);
+   size_t um      = (size_t)(T * 0.01);
+   size_t meio    = (size_t)(T * 0.005);
+   size_t decimo  = (size_t)(R * 0.10);
+   size_t quinto  = (size_t)(R * 0.20);
+   size_t quarto  = (size_t)(R * 0.25);
+   size_t terco   = (size_t)(R * 0.333);
+
+   if (p < 0.20 && terco > 0)
+      this->atual += terco;
+   else if (p >= 0.20 && p < 0.40 && quarto > 0)
+      this->atual += quarto;
+   else if (p >= 0.40 && p < 0.60 && quinto > 0)
+      this->atual += quinto;
+   else if (p >= 0.60 && p < 0.90 && decimo > 0)
+      this->atual += decimo;
+   else if (p >= 0.90 && p < 0.95 && um > 0)
+      this->atual += um;
+   else if (p >= 0.95 && p < 0.98 && meio > 0)
+      this->atual += meio;
+   else 
+      this->atual++;
+}
+
+void Entrada::taxa_de_crescimento_b(void) {
+/* Está derivada aplica a maior taxa de crescimento que pode haver, e se ela
+ * se esgotar, aplicar uma de menor intensidade. */
+   // Percentual que ainda falta para terminar.
+   float p = this->percentual();
+   float P = 1.0 - p;
+   // Quantia que tal "percentual faltante" significa.
+   size_t T       = this->total;
+   size_t R       = (size_t)(P * T);
+   size_t um      = (size_t)(T * 0.01);
+   size_t meio    = (size_t)(T * 0.005);
+   size_t decimo  = (size_t)(R * 0.10);
+   size_t quinto  = (size_t)(R * 0.20);
+   size_t quarto  = (size_t)(R * 0.25);
+   size_t terco   = (size_t)(R * 0.333);
+
+   if (terco > 0)
+      this->atual += terco;
+   else if (quarto > 0)
+      this->atual += quarto;
+   else if (quinto > 0)
+      this->atual += quinto;
+   else if (decimo > 0)
+      this->atual += decimo;
+   else if (um > 0)
+      this->atual += um;
+   else if (meio > 0)
+      this->atual += meio;
+   else 
+      this->atual++;
+}
+
+Entrada& Entrada::operator++(){
+/* Aumenta uma fração do percentual do que ainda é restante. Uma ferramenta
+ * feita especialmente para debug, fazer tais entradas aumentarem de forma
+ * arbitraria para que possa debuggar sua interface gráfica. */
+   // Abandona se já estiver finalizado o progresso.
+   if (this->percentual() > 1.0) return *this;
+
+   (*this).taxa_de_crescimento_b();
+
+   // Correção de excedências, se houve um acrescimo acima do máximo(cem).
+   if ((*this).atual > (*this).total)
+      (*this).atual = (*this).total;
+
+   return *this;
+}
+
+string Entrada::to_string(void) {
+// Transforma a formatação numa string.
+   ostringstream fmt_number, fmt_bar, fmt_label;
+   // Total desta barra que foi carregado.
+   int QUANTIA = (int)(COMPRIMENTO * this->percentual());
+   int total_digitos = (int)(floor(log10(this->total)) + 1);
+
+   // Criando a formatação da parte que diz sobre a quantia total/e a atual.
+   fmt_number.width(total_digitos);
+   fmt_number << (int)this->atual;
+   fmt_number << "/";
+   fmt_number << (int)this->total; 
+   fmt_number << ESPACO.c_str();
+   /* Criando uma formatação de barra de progresso em sí. */
+   fmt_bar << '[';
+   for (int n = 1; n < COMPRIMENTO; n++) {
+      if (n < QUANTIA)
+         fmt_bar << 'o';
+      else
+         fmt_bar << '.';
+   }
+   fmt_bar << ']';
+   fmt_bar.precision(4);
+   fmt_bar.width(4);
+   fmt_bar << this->percentual() * 100.0; 
+   fmt_bar << '%';
+   // Rótulo. Tenta encurtar se for longo demais.
+   if (this->rotulo.length() > 50) {
+      int count = 1;
+      for (char& letra: this->rotulo) {
+         if (count++ > 50)
+            break;
+         fmt_label << letra;
+      }
+      fmt_label << ESPACO;
+      fmt_label << "...";
+      fmt_label << ESPACO;
+   } else 
+      fmt_label << this->rotulo;
+   
+   string Output(fmt_label.str());
+
+   Output += ESPACO;
+   Output += fmt_number.str();
+   Output += fmt_bar.str();
+   return Output;
+}
+
+ostream& operator<<(ostream& Output, Entrada& obj) {
+// Formatação do tipo de dado na saída padrão, ou em que está acoplada a ela.
+   Output << obj.to_string();
+   return Output;
+}
+
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                         Encapsulamento
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+string& Entrada::getRotulo(void) 
+   { return this->rotulo; }
+
+size_t Entrada::getTotal(void) 
+   { return this->total; }
+
+size_t Entrada::getAtual(void) 
+   { return this->atual; }
+
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                      Serialização e Deserialização
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+#include <memory>
+#include <climits>
+
+static void serializa_u16(uint16_t In, uint8_t* Out) {
+   const int sz = sizeof(uint16_t);
+   uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
+
+   uninitialized_copy_n(bytes, sz, Out);
+}
+
+static void serializa_usize(size_t In, uint8_t* Out) {
    const int sz = sizeof(size_t);
+   uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
+
+   uninitialized_copy_n(bytes, sz, Out);
+}
+
+static void serializa_str(const char* In, int In_a, uint8_t* Out) {
+   auto In_b = const_cast<char*>(In); 
+   auto In_c = reinterpret_cast<uint8_t*>(In_b);
+
+   uninitialized_copy_n(In_c, In_a, Out);
+}
+
+static void insere_na_fila(uint8_t* In, int In_sz, queue<uint8_t>& Out) {
+   int size = In_sz;
+
+   for (int i = 1; i <= size; i++)
+      Out.push(In[i - 1]);
+}
+
+queue<uint8_t> Entrada::serializa(void) {
    queue<uint8_t> Out;
-   /* Selo de tempo quando criado tal coisa. */
-   time_t t = system_clock::to_time_t(this->criacao);
+   // O comprimento total da série de bytes é algo como o comprimento da 
+   // string, mais 16 bytes referentes aos valores de inicio e fim, ambos
+   // 8 bytes prá cada.
+   int N, quantia = this->rotulo.size() + 2 * 8;
+   // Quinhentos caractéres prá string no rótulo, uma coisa maior que 
+   // isso seria até desnecessário pra aplicação.
+   const int MAX = 2 * UCHAR_MAX;
+   uint8_t buffer[MAX];
+
+   // Copia os bytes, que indicam a quantidade total de bytes do objeto.
+   N = sizeof(size_t);
+   serializa_usize(quantia, buffer);
+   insere_na_fila(buffer, Out);
+
+   /* Copia a string. Na verdade os bytes(dois) com o comprimento dela, então
+    * seu buffer interno. 
+    * Transforma o valor num inteiro positivo de 16-bits, então pega seus 
+    * bytes.*/
+   N = sizeof(uint16_t);
+   serializa_u16(this->rotulo.length(), buffer);
+   insere_na_fila(buffer, Out);
+   // Agora o buffer/data da string.
+   N = this->rotulo.length() * sizeof(char);
+   serializa_str(this->rotulo.c_str(), N, buffer);
+   insere_na_fila(buffer, Out);
+
+   // Serializa e colocar os valores 'atual' e 'total'.
+   N = sizeof(size_t);
+   serializa_usize(this->atual, buffer);
+   insere_na_fila(buffer, N, Out);
+   serializa_usize(this->total, buffer);
+   insere_na_fila(buffer, N, Out);
    
-   auto Out_a = this->rotulo.serializa();
-   auto Out_b = serializa_inteiro((size_t)t); 
-   auto Out_c = serializa_decimal(this->taxa);
-   auto Out_d = this->bar.serializa();
-   /* Contabilizando o total de bytes do conjunto acima, inclusive deste
-    * aqui. A letra bem distante das demais indica que não seguirá a ordem
-    * de concatenação das demais. Ele no quesito tem que ser o primeiro
-    * a ser concatenado, pois indica o total de bytes a extrair de uma
-    * fila contendo a aglomeração de todos bytes. */
-   auto Out_z = serializa_inteiro(
-      Out_a.size() + Out_b.size() + 
-      Out_c.size() + Out_d.size() + sz
-   );
-
-   anexa_fila(std::move(Out_z), Out);
-   anexa_fila(std::move(Out_a), Out);
-   anexa_fila(std::move(Out_b), Out);
-   anexa_fila(std::move(Out_c), Out);
-   anexa_fila(std::move(Out_d), Out);
-
    return Out;
 }
 
-auto entrada::Entrada::deserializa(queue<uint8_t>& In) -> Entrada {
-/* O esquema é seguir o procedimento acima. Como o resultado é uma fila 
- * de bytes, então os primeiros serializados, serão obviamente os primeiros
- * a serem deserializado. O primeiro aqui é o tanto de bytes que a Entrada
- * ocupa, por ser uma geração variavel foi necessário colocar tal tanto
- * de bytes codificados no começo da "linguiça de bytes". Decodificado eles
- * você pode extrair o total de bytes necessários para decodificar tal 
- * tipo. */
-   auto bytes = extrai_n_bytes(In, sizeof(size_t));
-   auto total = deserializa_inteiro(bytes);
+Entrada Entrada::deserializa(std::queue<uint8_t>) 
+   { Entrada x; return x; }
 
-   assert (In.size() >= total);
-   // Restantes do bytes a extrair, já faz tudo de uma vez só.
-   auto r = extrai_n_bytes(bytes, total);
-
-   auto rotulo  = LED::deserializa(r);
-   auto criacao = deserializa_inteiro(r);
-   auto taxa    = deserializa_decimal(r);
-   auto bar     = Progresso::deserializa(r);
-
-   // Tudo deve ter sido devidamente extraído.
-   assert (r.empty());
-
-   return Entrada(rotulo.texto, bar.atual, bar.total, rotulo.comprimento,
-         bar.comprimento, taxa, system_clock::from_time_t(criacao));
-}
-
-/* === === ===  === === === === === === === === === === === === === === ===
- *                   Sobrecarga de alguns métodos e novos
- *                         para o tipo EntradaPipe
- * === === ===  === === === === === === === === === === === === === === = */
-static entrada::path SEP_PTH = entrada::path("#");
-
-auto entrada::EntradaPipe::cria_named_pipe_automatico() -> void {
-   mode_t nivel_de_permissao = 0664;
-   path caminho = this->canal;
-   int result = mkfifo(caminho.c_str(), nivel_de_permissao);
-   const char* nome = caminho.filename().c_str();
-
-   if (result == -1) {
-      switch(errno) {
-         case EACCES:
-            cout << "Algum diretório no caminho não permite pesquisa.\n";
-            break;
-         case EEXIST:
-            cout << "O caminho já existe.\n";
-            break;
-         case EROFS:
-            cout << "Aquivo com apenas permissão de leitura.\n";
-            break;
-         default:
-            cout << "Qualquer outro erro na criação do 'named pipe' "
-               << nome << endl;
-      }
-   }
-}
-
-auto entrada::EntradaPipe::abre_named_pipe_automatico() -> void {
-   const char* caminho = this->canal.c_str();
-   auto nome = this->canal.filename();
-   this->fd = open(this->canal.c_str(), O_RDWR);
-
-   if (this->fd == -1) {
-      switch(errno) {
-         case EACCES:
-            cout << "Acesso negado em alguma parte do caminho.\n";
-            break;
-
-         case EEXIST:
-            cout << "Caminho " << caminho << " já existe.\n";
-            break;
-
-         default:
-            cout << "Outro erro na abertura do np " << caminho << endl;
-      }
-   }
-}
-
-entrada::EntradaPipe::EntradaPipe(
-  pid_t id, path cH, int fd, string l, size_t a, size_t T, uint8_t vC, 
-  uint8_t bC, double tI, time_point<Clock> tC
-): Entrada(l, a, T, vC, bC, tI, tC)
-{
-   this->ID = id;
-   this->canal = cH;
-   this->fd = fd;
-
-   this->cria_named_pipe_automatico();
-   this->abre_named_pipe_automatico();
-}
-
-entrada::EntradaPipe::EntradaPipe(path cH, string l, size_t t): Entrada(l, t)
-{
-   pid_t identificador = getpid();
-   string id_str = std::to_string(identificador);
-
-   this->ID = identificador;
-   this->canal += cH;
-   this->canal += SEP_PTH; 
-   this->canal += path(id_str);
-
-   this->cria_named_pipe_automatico();
-   this->abre_named_pipe_automatico();
-}
-
-entrada::EntradaPipe::EntradaPipe(): Entrada() {
-   pid_t identificador = getpid();
-   string id_str = std::to_string(identificador);
-   path canal = path(string("entrada_pipe"));
-
-   this->ID = identificador;
-   this->canal += canal;
-   this->canal += SEP_PTH; 
-   this->canal += path(id_str);
-
-   this->cria_named_pipe_automatico();
-   this->abre_named_pipe_automatico();
-}
-
-entrada::EntradaPipe::~EntradaPipe() {
-   const char* caminho = this->canal.c_str();
-
-   if (close(this->fd) == -1) {
-      switch (errno) {
-         case EBADF:
-            cout << "O 'fd' é inválido.\n";
-            break;
-         case EINTR:
-            cout << "A chamada 'close' foi interrompida por um sinal.\n";
-            break;
-         case EIO:
-            cout << "Erro no I/O durante o fechamento.\n";
-            break;
-         default:
-            cout << "Outro erro incomum durante a chamada do 'close'.\n";
-      }
-   }
-
-   if (unlink(caminho) == -1) {
-      switch (errno) {
-         case EROFS:
-            cout << "Arquivo com apenas permissão de escrita.\n";
-            break;
-         case EISDIR:
-            cout << "É na verdade um diretório. Não um 'named pipe'.\n";
-            break;
-         case ENOTDIR:
-            cout << "Caminho relativo não apontando certo 'named pipe'.\n";
-            break;
-         default:
-            cout << "Erro ao tentar excluir o 'named pipe'.\n";
-      }
-   }
-}
-// --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- -
-
-bool entrada::EntradaPipe::operator==(EntradaPipe& obj) {
-/* O mesmo 'id' referente ao processo, também o mesmo 'file descripto', assim
- * como o caminho. Compartilhando todos estes valores, podemos dizer que 
- * tal tipo de 'entrada' é igual. Isso não parece intuítivo baseado na sua
- * superclass, porém tal igualdade aqui é para descartar repetições. Isto
- * que numa malha de multiprocessamento acontecerá bastante. */
-   return (obj.ID == this->ID) && (obj.fd == this->fd) 
-            && (obj.canal == this->canal);
-}
-ostream& operator<<(ostream& output, entrada::EntradaPipe& obj) {
-   output.width(4);
-   output.precision(2);
-   output << "[Entrada Pipe] " << obj.bar.atual << " de " << 
-      obj.bar.total << "\t~" << obj.bar.percentual() << '%';
-
-   return output;
-}
-
-// --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- -
-auto entrada::EntradaPipe::serializa() -> queue<uint8_t> {
-/* Quase o mesmo que o da superclasse original, porém com os campos extras
- * que este tem. E claro, todos eles são inseridos na ordem que foram 
- * codificados, no final da seŕie de bytes que o primeiro já realiza, método
- * do antigo. */
-   queue<uint8_t> Out_d, Out_a, Out_b, Out_c, Out_sz, Out;
-   std::string caminho{this->canal.c_str()};
-   size_t fd = this->fd, id = this->ID, size;
-   
-   Out_a = Entrada::serializa();
-   size = deserializa_inteiro(Out_a);
-
-   Out_b = serializa_inteiro(id);
-   Out_c = serializa_string(caminho);
-   Out_d = serializa_inteiro(fd);
-   Out_sz = serializa_inteiro(
-      size + Out_a.size() + Out_b.size() + 
-      Out_c.size() + Out_d.size()
-   );
-
-   /* Primeiro a quantia de bytes do demais, depois o resto. Apenas segue-se
-    * a ordem alfabética que já foi ajeitado desta maneira. */
-   anexa_fila(std::move(Out_sz), Out);
-   anexa_fila(std::move(Out_a), Out);
-   anexa_fila(std::move(Out_b), Out);
-   anexa_fila(std::move(Out_c), Out);
-   anexa_fila(std::move(Out_d), Out);
-
-   return Out;
-}
-
-auto entrada::EntradaPipe::deserializa(queue<uint8_t>& In) -> EntradaPipe { 
-/* Deserializa e codifica os primeiros bytes, estes que codificam os demais
- * bytes. Extrai tal quantia, e começa a deserializar e atribuir o valor
- * aos determinados campos. */
-   auto total = deserializa_inteiro(In);
-   assert (In.size() >= total);
-   // Restantes do bytes a extrair, já faz tudo de uma vez só.
-   auto r = extrai_n_bytes(In, total);
-
-   // Dados da Entrada original:
-   auto rotulo  = LED::deserializa(r);
-   auto criacao = deserializa_inteiro(r);
-   auto taxa    = deserializa_decimal(r);
-   auto bar     = Progresso::deserializa(r);
-   // Dados da EntradaPipe:
-   auto pid     = deserializa_inteiro(r);
-   auto canal   = deserializa_string(r);
-   auto fd      = deserializa_inteiro(r);
-
-   // Tudo deve ter sido devidamente extraído.
-   assert (r.empty());
-   return EntradaPipe(
-      pid, canal, fd, rotulo.texto, bar.atual, bar.total, 
-      rotulo.comprimento, bar.comprimento, taxa, 
-      system_clock::from_time_t(criacao)
-   );
-}
-
-static uint8_t* fila_to_array_de_bytes(queue<uint8_t>&& fila)
-{
-   int size = fila.size();
-   uint8_t* array_ = new uint8_t[size];
-   int cursor = 0;
-
-   while (!fila.empty()) {
-      array_[cursor++] = fila.front();
-      fila.pop();
-   }
-   return array_;
-}
-
-void entrada::EntradaPipe::atualiza_externo() {
-   auto qb = this->serializa();
-   auto quantia = qb.size();
-   auto array_ = fila_to_array_de_bytes(std::move(qb));
-
-   write(this->fd, array_, quantia);
-   delete[] array_;
-}
 
 #ifdef __unit_tests__
-/* === === ===  === === === === === === === === === === === === === === ===
- *                      Testes Unitários
- * === === ===  === === === === === === === === === === === === === === = */
-#include "teste.h"
-#include <thread>
+#ifdef __linux__
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                   Testes Unitários de Entrada
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+ #include <iostream>
 
-using entrada::EntradaPipe;
-using entrada::string;
+template <typename T>
+void print_queue(queue<T>& fila) {
+   int total = fila.size();
 
-int main(void) {
-   auto texto = string("Isso é um teste com um pipe teórico");
-   auto X = EntradaPipe(texto, 800);
-   auto duracao = std::chrono::seconds(2);
+   cout << '(' << fila.size() << ") " << '[';
+   while (total-- > 0) {
+      auto X = fila.front();
 
-   for (int i = 0; i < 12; i++) {
-      cout << X << endl;
-      X += (5 + i) * i;   
-      std::this_thread::sleep_for(duracao);
+      fila.pop();
+      cout << (int)X << ", ";
+      fila.push(X);
    }
+   cout << "\b\b" << ']' << endl;
 }
+
+int main(int qtd, char* args[], char* vars[]) 
+{
+   Entrada a, b;
+
+   cout << a << endl << b << endl;
+
+   auto bytes_a = a.serializa();
+   auto bytes_b = b.serializa();
+
+   print_queue(bytes_a);
+   print_queue(bytes_b);
+}
+#endif
 #endif
