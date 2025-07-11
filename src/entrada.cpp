@@ -271,6 +271,7 @@ static void serializa_u16(uint16_t In, uint8_t* Out) {
    const int sz = sizeof(uint16_t);
    uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
 
+   // Pode lançar uma exceção futuramente.
    uninitialized_copy_n(bytes, sz, Out);
 }
 
@@ -278,6 +279,7 @@ static void serializa_usize(size_t In, uint8_t* Out) {
    const int sz = sizeof(size_t);
    uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
 
+   // Pode lançar uma exceção futuramente.
    uninitialized_copy_n(bytes, sz, Out);
 }
 
@@ -285,10 +287,12 @@ static void serializa_str(const char* In, int In_a, uint8_t* Out) {
    auto In_b = const_cast<char*>(In); 
    auto In_c = reinterpret_cast<uint8_t*>(In_b);
 
+   // Pode lançar uma exceção futuramente.
    uninitialized_copy_n(In_c, In_a, Out);
 }
 
 static void insere_na_fila(uint8_t* In, int In_sz, queue<uint8_t>& Out) {
+/* Insere uma array de bytes, de tamanho 'sz', na fila de bytes.*/
    int size = In_sz;
 
    for (int i = 1; i <= size; i++)
@@ -296,6 +300,15 @@ static void insere_na_fila(uint8_t* In, int In_sz, queue<uint8_t>& Out) {
 }
 
 queue<uint8_t> Entrada::serializa(void) {
+/*   A ordem que está serializado até o momento é: quantia total de bytes
+ * que toda string de bytes carrega, em 8 bytes; atributo 'total', também
+ * 8 bytes; atributo 'atual'(8 bytes); comprimento da string(2 bytes); 
+ * conteúdo da string, uma quantia variada de bytes, que os dois bytes 
+ * anteriores a ela representam.
+ *   Obs.: A parte estática da estrutura vem primeiro, a parte dinâmica 
+ * depois. O que isso quer dizer? Os objetos com tamanho conhecido em tempo 
+ * de compilação sempre ficam no começo, aqueles com quantias variaveis de 
+ * bytes depois. Isso porquê, ajuda na leitura de tais bytes imprimidos. */
    queue<uint8_t> Out;
    // O comprimento total da série de bytes é algo como o comprimento da 
    // string, mais 16 bytes referentes aos valores de inicio e fim, ambos
@@ -309,7 +322,14 @@ queue<uint8_t> Entrada::serializa(void) {
    // Copia os bytes, que indicam a quantidade total de bytes do objeto.
    N = sizeof(size_t);
    serializa_usize(quantia, buffer);
-   insere_na_fila(buffer, Out);
+   insere_na_fila(buffer, N, Out);
+
+   // Serializa e colocar os valores 'atual' e 'total'.
+   N = sizeof(size_t);
+   serializa_usize(this->atual, buffer);
+   insere_na_fila(buffer, N, Out);
+   serializa_usize(this->total, buffer);
+   insere_na_fila(buffer, N, Out);
 
    /* Copia a string. Na verdade os bytes(dois) com o comprimento dela, então
     * seu buffer interno. 
@@ -317,17 +337,10 @@ queue<uint8_t> Entrada::serializa(void) {
     * bytes.*/
    N = sizeof(uint16_t);
    serializa_u16(this->rotulo.length(), buffer);
-   insere_na_fila(buffer, Out);
+   insere_na_fila(buffer, N, Out);
    // Agora o buffer/data da string.
    N = this->rotulo.length() * sizeof(char);
    serializa_str(this->rotulo.c_str(), N, buffer);
-   insere_na_fila(buffer, Out);
-
-   // Serializa e colocar os valores 'atual' e 'total'.
-   N = sizeof(size_t);
-   serializa_usize(this->atual, buffer);
-   insere_na_fila(buffer, N, Out);
-   serializa_usize(this->total, buffer);
    insere_na_fila(buffer, N, Out);
    
    return Out;
@@ -345,7 +358,9 @@ Entrada Entrada::deserializa(std::queue<uint8_t>)
  #include <iostream>
 
 template <typename T>
-void print_queue(queue<T>& fila) {
+static void print_queue(queue<T>& fila) {
+/* Realiza a impressão dos itens de tipo 'T' na 'fila'. Isso não é 'TS',
+ * porque ele modifica o objeto para realizar tal tarefa, então cuidado. */
    int total = fila.size();
 
    cout << '(' << fila.size() << ") " << '[';
