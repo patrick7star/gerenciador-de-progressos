@@ -58,19 +58,19 @@ compila-testes-unitarios: compila-objetos test-progresso teste-led test-monitor
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 entrada-test:
 	clang++ -D__unit_tests__ -g3 -O0 -Wall \
-		-c -o build/entrada-ut.o src/entrada.cpp
-	clang++ -o bin/ut_entrada build/entrada-ut.o -lcurses
+		-c -o build/entrada-test.o src/entrada.cpp
+	clang++ -o bin/ut_entrada build/entrada-test.o -lcurses
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 debug:
-	clang++ -g3 -O0 -Wall -c -o build/entrada-test.o src/entrada.cpp
+	clang++ -g3 -O0 -Wall -c -o build/entrada-debug.o src/entrada.cpp
 	clang++ -D__unit_tests__ -g3 -O0 -Wall \
-		-c -o build/painel-test.o src/painel.cpp
+		-c -o build/painel-debug.o src/painel.cpp
 	clang++ -g3 -O0 -Wall -D__unit_tests__ \
-		-c -o build/main-test.o src/main.cpp
-	clang++ -o bin/debug		\
-		build/main-test.o		\
-		build/entrada-test.o \
-		build/painel-test.o	\
+		-c -o build/main-debug.o src/main.cpp
+	clang++ -o bin/debug		   \
+		build/main-debug.o		\
+		build/entrada-debug.o   \
+		build/painel-debug.o	   \
 			-lcurses
 release:
 	clang++ -O3 -Wall -c src/entrada.cpp src/painel.cpp src/main.cpp
