@@ -1,25 +1,21 @@
 #include "painel.hpp"
+#include <iostream>
 
 using namespace std;
 
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                Construtores e Desconstrutor do Painel
  * == == == == == == == == == == == == == == == == == == == == == == == == */
-PainelDeProgresso::PainelDeProgresso(void) {
-/* Cria um 'painel', então configura várias propriedades referentes a
- * ela. Inclusive termina por realizar a primeira construção, então uma
- * renderização dela. */
-   initscr();
-
-   // Configuração da janela inicializada.
+static void configura_janela(void) {
    start_color();
    keypad(stdscr, true);
    nonl();
    noecho();
    use_default_colors();
    nodelay(stdscr, true);
+}
 
-   // Iniciando a paleta de cores.
+static void inicia_paleta_de_cores(void) {
    init_pair(100, COLOR_BLACK,   -1);
    init_pair( 99, COLOR_RED,     -1);
    init_pair( 98, COLOR_GREEN,   -1);
@@ -28,12 +24,21 @@ PainelDeProgresso::PainelDeProgresso(void) {
    init_pair( 95, COLOR_MAGENTA, -1);
    init_pair( 94, COLOR_CYAN,    -1);
    init_pair( 93, COLOR_WHITE,   -1);
+}
+
+PainelDeProgresso::PainelDeProgresso(void) {
+/* Cria um 'painel', então configura várias propriedades referentes a
+ * ela. Inclusive termina por realizar a primeira construção, então uma
+ * renderização dela. */
+   initscr();
+   configura_janela();
+   inicia_paleta_de_cores();
 
    this->renderiza();
 }
 
 PainelDeProgresso::~PainelDeProgresso(void)
-   { endwin(); }
+   { endwin(); cout << "Finalizada interface semi-gráfica.\n"; }
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                      Construção e Renderização
  * == == == == == == == == == == == == == == == == == == == == == == == == */
@@ -83,19 +88,6 @@ void PainelDeProgresso::renderiza(void) {
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                      Funções e Métodos pra Debuggin'
  * == == == == == == == == == == == == == == == == == == == == == == == == */
-void PainelDeProgresso::insere(Entrada& a) 
-// Insere uma 'entrada' no 'painel'. Também tem propositos de debugação.
-   { this->lista.push_back(a); }
-
-void PainelDeProgresso::incrementa(void) {
-/* Incrementa uma 'entrada' arbitrária presente na lista interna do 'painel',
- * O objetivo aqui é, simples propósito de debugging. */
-   int n = this->lista.size();
-   random_device motor;
-   uniform_int_distribution<int> seletor(0, n - 1);
-
-   ++(this->lista[seletor(motor)]);
-}
 #endif
 
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==

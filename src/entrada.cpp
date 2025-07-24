@@ -1,18 +1,37 @@
 #include "entrada.hpp"
+// Biblioteca padrão do C++:
+#include <iostream>
+#include <new>
+// GNU library of POSIX:
+#include <sys/types.h>
+#include <unistd.h>
 
 using namespace std;
 
 const string ESPACO("  ");
 // Comprimento da barra de progresso.
 const int COMPRIMENTO = 28;
+#define ig std::ignore
 
 
+static int digitos_necessarios(size_t X)
+// Computa o total de dígitos que o valor passado ocupa.
+   {  return (int)(floor(log10(X)) + 1); }
 
-Entrada::Entrada(const string rotulo, size_t atual, size_t total) 
+bool Entrada::esgotado(void) const
+/* Diz que o progresso de uma 'entrada' está esgotado, quando a 'atual' taxa
+ * excede ou igualá o 'total'. */
+   { return ((*this).atual == (*this).total); }
+      
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                     Construturos e Destrutores
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+Entrada::Entrada(const string rotulo, size_t atual, size_t total, pid_t ID) 
 { 
    this->rotulo = rotulo; 
    this->atual = atual; 
    this->total = total; 
+   this->id = ID;
 }
 
 static string comando_fortune_string(void) {
@@ -49,11 +68,11 @@ Entrada::Entrada(void) {
    this->rotulo = comando_fortune_string();
    this->total = seletor(motor);
    this->atual = seletor(motor);
+   this->id = getpid();
    
    while (this->atual > this->total)
       (*this).atual = seletor(motor);
 }
-
 
 void Entrada::desenha(WINDOW* janela, int linha)
 {
@@ -63,7 +82,8 @@ void Entrada::desenha(WINDOW* janela, int linha)
    const int COMPRIMENTO = 28;
    // Total desta barra que foi carregado.
    int QUANTIA = (int)(COMPRIMENTO * this->percentual());
-   int total_digitos = (int)(floor(log10(this->total)) + 1);
+   // int total_digitos = (int)(floor(log10(this->total)) + 1);
+   int total_digitos = digitos_necessarios(this->total);
 
    // Criando a formatação da parte que diz sobre a quantia total/e a atual.
    fmt_a.width(total_digitos);
@@ -106,7 +126,10 @@ void Entrada::desenha(WINDOW* janela, int linha)
    addstr(fmt_bar.str().c_str());
 }
 
-float Entrada::percentual(void) {
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                     Métodos Auxiliares Internos 
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
+float Entrada::percentual(void) const {
 /* Computa percentual já crescido da entrada. */
    float a = this->atual;
    float t = this->total;
@@ -179,6 +202,9 @@ void Entrada::taxa_de_crescimento_b(void) {
       this->atual++;
 }
 
+/* == == == == == == == == == == == == == == == == == == == == == == == == ==
+ *                      Operadores de Sobrecarga 
+ * == == == == == == == == == == == == == == == == == == == == == == == == */
 Entrada& Entrada::operator++(){
 /* Aumenta uma fração do percentual do que ainda é restante. Uma ferramenta
  * feita especialmente para debug, fazer tais entradas aumentarem de forma
@@ -195,12 +221,29 @@ Entrada& Entrada::operator++(){
    return *this;
 }
 
-string Entrada::to_string(void) {
+bool Entrada::operator==(Entrada& obj) const { 
+   size_t atual, total;
+   pid_t id;
+   tie(atual, total, id) = obj.getIntAtributos();
+
+   return (
+      // Os totais deles tem que ser iguais.
+      this->total == total    &&
+      /* A taxa de finalização devem ser maior o igual. Tal condição, elimina
+       * mesma entrada, porém com valores antigos. */
+      this->atual >= atual    &&
+      // Tem que pertencer ao mesmo processo.
+      this->id == id 
+   );
+}
+
+string Entrada::to_string(void) const {
 // Transforma a formatação numa string.
    ostringstream fmt_number, fmt_bar, fmt_label;
    // Total desta barra que foi carregado.
    int QUANTIA = (int)(COMPRIMENTO * this->percentual());
-   int total_digitos = (int)(floor(log10(this->total)) + 1);
+   // int total_digitos = (int)(floor(log10(this->total)) + 1);
+   int total_digitos = digitos_necessarios(this->total);
 
    // Criando a formatação da parte que diz sobre a quantia total/e a atual.
    fmt_number.width(total_digitos);
@@ -224,7 +267,7 @@ string Entrada::to_string(void) {
    // Rótulo. Tenta encurtar se for longo demais.
    if (this->rotulo.length() > 50) {
       int count = 1;
-      for (char& letra: this->rotulo) {
+      for (const char& letra: this->rotulo) {
          if (count++ > 50)
             break;
          fmt_label << letra;
@@ -243,23 +286,76 @@ string Entrada::to_string(void) {
    return Output;
 }
 
+ostream& operator<<(ostream& Output, const Entrada& obj) {
+// Formatação do tipo de dado na saída padrão, ou em que está acoplada a ela.
+   const string auxiliar = obj.to_string();
+   auto p = auxiliar.find("/", 0);
+   auto rotulo = auxiliar.substr(0, p - 6);
+   auto q = auxiliar.find("[", 0);
+   auto t = auxiliar.find("]", q);
+   auto barra = auxiliar.substr(q, t + 5);
+   auto m = auxiliar.find("/");
+   auto n = digitos_necessarios(obj.getTotal());
+   auto l = ESPACO.length();
+   auto info = auxiliar.substr(m - n, l + 2 * n);
+
+   pid_t id;
+   tie(ig, ig, id) = obj.getIntAtributos();
+
+   Output << "PID: " << id << endl;
+   Output << "Rótulo: \"" << rotulo  << '\"'<< endl;
+   Output << "Barra: " << barra << endl;
+   Output << "Info: " << info << ESPACO << obj.getAtual() << " e " 
+          << obj.getTotal() << endl << endl;
+
+   return Output;
+}
+
 ostream& operator<<(ostream& Output, Entrada& obj) {
 // Formatação do tipo de dado na saída padrão, ou em que está acoplada a ela.
-   Output << obj.to_string();
+   const string auxiliar = obj.to_string();
+   auto p = auxiliar.find("/", 0);
+   auto rotulo = auxiliar.substr(0, p - 6);
+   auto q = auxiliar.find("[", 0);
+   auto t = auxiliar.find("]", q);
+   auto barra = auxiliar.substr(q, t + 5);
+   auto m = auxiliar.find("/");
+   auto n = digitos_necessarios(obj.getTotal());
+   auto l = ESPACO.length();
+   auto info = auxiliar.substr(m - n, l + 2 * n);
+
+   pid_t id;
+   tie(ig, ig, id) = obj.getIntAtributos();
+
+   Output << "PID: " << id << endl;
+   Output << "Rótulo: \"" << rotulo  << '\"'<< endl;
+   Output << "Barra: " << barra << endl;
+   Output << "Info: " << info << ESPACO << obj.getAtual() << " e " 
+          << obj.getTotal() << endl << endl;
+
    return Output;
 }
 
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                         Encapsulamento
  * == == == == == == == == == == == == == == == == == == == == == == == == */
-string& Entrada::getRotulo(void) 
+const string& Entrada::getRotulo(void) const
    { return this->rotulo; }
 
-size_t Entrada::getTotal(void) 
+size_t Entrada::getTotal(void) const
    { return this->total; }
 
-size_t Entrada::getAtual(void) 
+size_t Entrada::getAtual(void) const
    { return this->atual; }
+
+tuple<size_t, size_t, pid_t>
+Entrada::getIntAtributos(void) const {
+   auto atual = this->atual;
+   auto total = this->total;
+   auto id = this->id;
+
+   return make_tuple(atual, total, id);
+}
 
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                      Serialização e Deserialização
@@ -267,87 +363,101 @@ size_t Entrada::getAtual(void)
 #include <memory>
 #include <climits>
 
-static void serializa_u16(uint16_t In, uint8_t* Out) {
-   const int sz = sizeof(uint16_t);
-   uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
+Bytes Entrada::serializa(void) {
+/*   Sem sucesso ainda com um tipo serialização dinâmica, tentarei ao invés 
+ * a versão estática. Assim, o retorno ao invés de uma fila, será uma array
+ * fixa, com os bytes todos enfileirados. A ordem de inserção, ainda continua
+ * a mesma que a anterior: em primeiro, os bytes dos valores com tamanhos 
+ * fixos em tempo de compilação; depois os tipos de dados variaveis, que 
+ * neste caso é essencialmente a string. O tamanho de tal array é definida
+ * pela constante 'MAX_SERIALIZACAO'.
+ *   Então a organização dos dados serializados fica: na parte estática, 
+ * atributos 'atual' e 'total', nesta ordem; já a parte dinâmica fica o 
+ * restante, como é a única, tal fase é extremamente fácil, o que sobra
+ * do buffer, apenas é preenchidos com caractéres nulos. */
+   array<uint8_t, MAX_SERIAL> Out;
+   int escrito = 0, sz = 0;
+   uint8_t* fonte{nullptr}, *destino{nullptr};
 
-   // Pode lançar uma exceção futuramente.
-   uninitialized_copy_n(bytes, sz, Out);
-}
+   // Preenche com zeros, principalmente para a string que será escrita.
+   uninitialized_fill(Out.begin(), Out.end(), 0x0);
+   // Serialização e copia do inteiro sem sinal de máquina 'atual'.
+   sz = sizeof(size_t);
+   fonte = reinterpret_cast<uint8_t*>(&this->atual);
+   destino = Out.begin() + escrito;
+   uninitialized_copy_n(fonte, sz, destino);
+   escrito += sz;
+   // Serialização e copia do inteiro sem sinal de máquina 'total'.
+   fonte = reinterpret_cast<uint8_t*>(&this->total);
+   destino = Out.begin() + escrito;
+   uninitialized_copy_n(fonte, sz, destino);
+   escrito += sz;
+   // Serialização do PID da 'entrada'. De que processo ela pertence. 
+   sz = sizeof(pid_t);
+   fonte = reinterpret_cast<uint8_t*>(&this->id);
+   destino = Out.begin() + escrito;
+   uninitialized_copy_n(fonte, sz, destino);
+   escrito += sz;
+   // Serialização dos dados da 'string' do atributo 'rótulo'.
+   auto quantia = this->rotulo.length();
+   sz = sizeof(char);
+   auto aux = const_cast<char*>(this->rotulo.c_str());
+   fonte = reinterpret_cast<uint8_t*>(aux);
+   destino = Out.begin() + escrito;
+   uninitialized_copy_n(fonte, quantia * sz, destino);
+   escrito += quantia * sz;
 
-static void serializa_usize(size_t In, uint8_t* Out) {
-   const int sz = sizeof(size_t);
-   uint8_t* bytes = reinterpret_cast<uint8_t*>(&In);
-
-   // Pode lançar uma exceção futuramente.
-   uninitialized_copy_n(bytes, sz, Out);
-}
-
-static void serializa_str(const char* In, int In_a, uint8_t* Out) {
-   auto In_b = const_cast<char*>(In); 
-   auto In_c = reinterpret_cast<uint8_t*>(In_b);
-
-   // Pode lançar uma exceção futuramente.
-   uninitialized_copy_n(In_c, In_a, Out);
-}
-
-static void insere_na_fila(uint8_t* In, int In_sz, queue<uint8_t>& Out) {
-/* Insere uma array de bytes, de tamanho 'sz', na fila de bytes.*/
-   int size = In_sz;
-
-   for (int i = 1; i <= size; i++)
-      Out.push(In[i - 1]);
-}
-
-queue<uint8_t> Entrada::serializa(void) {
-/*   A ordem que está serializado até o momento é: quantia total de bytes
- * que toda string de bytes carrega, em 8 bytes; atributo 'total', também
- * 8 bytes; atributo 'atual'(8 bytes); comprimento da string(2 bytes); 
- * conteúdo da string, uma quantia variada de bytes, que os dois bytes 
- * anteriores a ela representam.
- *   Obs.: A parte estática da estrutura vem primeiro, a parte dinâmica 
- * depois. O que isso quer dizer? Os objetos com tamanho conhecido em tempo 
- * de compilação sempre ficam no começo, aqueles com quantias variaveis de 
- * bytes depois. Isso porquê, ajuda na leitura de tais bytes imprimidos. */
-   queue<uint8_t> Out;
-   // O comprimento total da série de bytes é algo como o comprimento da 
-   // string, mais 16 bytes referentes aos valores de inicio e fim, ambos
-   // 8 bytes prá cada.
-   int N, quantia = this->rotulo.size() + 2 * 8;
-   // Quinhentos caractéres prá string no rótulo, uma coisa maior que 
-   // isso seria até desnecessário pra aplicação.
-   const int MAX = 2 * UCHAR_MAX;
-   uint8_t buffer[MAX];
-
-   // Copia os bytes, que indicam a quantidade total de bytes do objeto.
-   N = sizeof(size_t);
-   serializa_usize(quantia, buffer);
-   insere_na_fila(buffer, N, Out);
-
-   // Serializa e colocar os valores 'atual' e 'total'.
-   N = sizeof(size_t);
-   serializa_usize(this->atual, buffer);
-   insere_na_fila(buffer, N, Out);
-   serializa_usize(this->total, buffer);
-   insere_na_fila(buffer, N, Out);
-
-   /* Copia a string. Na verdade os bytes(dois) com o comprimento dela, então
-    * seu buffer interno. 
-    * Transforma o valor num inteiro positivo de 16-bits, então pega seus 
-    * bytes.*/
-   N = sizeof(uint16_t);
-   serializa_u16(this->rotulo.length(), buffer);
-   insere_na_fila(buffer, N, Out);
-   // Agora o buffer/data da string.
-   N = this->rotulo.length() * sizeof(char);
-   serializa_str(this->rotulo.c_str(), N, buffer);
-   insere_na_fila(buffer, N, Out);
-   
    return Out;
 }
 
-Entrada Entrada::deserializa(std::queue<uint8_t>) 
-   { Entrada x; return x; }
+size_t deserializa_sizet(Bytes& In, int* cursor) {
+   auto bytes = In.data();
+   size_t* pointer = (size_t*)(bytes + *cursor);
+   auto valor = *pointer;
+   const int sz = sizeof(size_t);
+
+   (*cursor) += sz;
+   return valor;
+}
+
+string deserializa_string(Bytes& In, int* cursor) {
+   auto restante = In.size() - (*cursor + 1); 
+   auto rawptr = In.data();
+   auto str = reinterpret_cast<char*>(rawptr);
+   auto buffer = new char[restante];
+   string Output;
+   auto fonte = str + *cursor;
+
+   uninitialized_copy_n(fonte, restante, buffer);
+   Output = string(buffer);
+   free(buffer);
+   (*cursor) += restante;
+
+   return Output;
+}
+
+pid_t deserializa_pidt (Bytes& In, int* cursor) {
+   auto bytes = In.data();
+   pid_t* pointer = (pid_t*)(bytes + *cursor);
+   auto valor = *pointer;
+   const int sz = sizeof(pid_t);
+
+   (*cursor) += sz;
+   return valor;
+}
+
+Entrada Entrada::deserializa(Bytes& In) { 
+   int lido = 0;
+   auto atual = deserializa_sizet(In, &lido);
+   auto total = deserializa_sizet(In, &lido);
+   auto id = deserializa_pidt(In, &lido);
+   auto rotulo = deserializa_string(In, &lido);
+
+   if (total < 0)
+      throw invalid_argument("bytes inválidos");
+
+   return Entrada(rotulo, atual, total, id);
+}
 
 
 #ifdef __unit_tests__
@@ -356,6 +466,8 @@ Entrada Entrada::deserializa(std::queue<uint8_t>)
  *                   Testes Unitários de Entrada
  * == == == == == == == == == == == == == == == == == == == == == == == == */
  #include <iostream>
+ #include <queue>
+ #include <cassert>
 
 template <typename T>
 static void print_queue(queue<T>& fila) {
@@ -374,17 +486,33 @@ static void print_queue(queue<T>& fila) {
    cout << "\b\b" << ']' << endl;
 }
 
+template <typename T>
+static void print_array(array<T, MAX_SERIAL>& seq) {
+   cout << '(' << seq.size() << ") " << '[';
+   for (T& item: seq) 
+      cout << (int)item << ", ";
+   cout << "\b\b" << ']' << endl;
+}
+
 int main(int qtd, char* args[], char* vars[]) 
 {
    Entrada a, b;
 
+   cout << "pid_t: " << sizeof(pid_t) << " bytes\n";
    cout << a << endl << b << endl;
 
    auto bytes_a = a.serializa();
    auto bytes_b = b.serializa();
 
-   print_queue(bytes_a);
-   print_queue(bytes_b);
+   print_array(bytes_a);
+   print_array(bytes_b);
+
+   auto A = Entrada::deserializa(bytes_a);
+   auto B = Entrada::deserializa(bytes_b);
+
+   cout << endl << A << endl << B << endl;
+   assert (A == a);
+   assert (B == b);
 }
 #endif
 #endif

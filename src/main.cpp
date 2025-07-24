@@ -27,43 +27,55 @@
 #include <array>
 #include <thread>
 #include <iostream>
+#include "comunicacao.hpp"
 
 constexpr int QTD = 8;
 
+using std::chrono::steady_clock;
+using time_point = std::chrono::time_point<steady_clock>;
 using namespace std;
 
-void versao_debug(void) {
-   const char* label = "item formado aleatóriamente";
-   array<Entrada, QTD> In;
-   PainelDeProgresso painel;
-   char tecla = '\0';
 
-   for (auto& entry: In)
-      painel.insere(entry);
+void versao_debug(void) 
+{
+   PainelDeProgresso painel;
+   char tecla = 0x00;
+   auto& listref = painel.interno();
+   Cliente caixa(listref);
+   // Ferramentas pra medida:
+   auto relogio = steady_clock::now();
+   constexpr auto LIMITE = 122s;
+   constexpr auto FRAME_RATE = 400;
 
    // Loop continuo de renderização.
    do {
       tecla = getch();
 
+      caixa.receber();
       painel.renderiza();
-      napms(400);
-      painel.incrementa();
-   
-   } while(tecla != 's' && !painel.todos_progressos_finalizados());
+      napms(FRAME_RATE);
+
+   } while(tecla != 's' && (steady_clock::now() - relogio) < LIMITE);
 }
 
-void incremento_arbitrario_da_entrada(void) {
-   Entrada input;
+void captura_externa(void)
+{
+   vector<Entrada> list;
+   Cliente caixa(list);
 
-   for (int n = 1; n <= 10; n++) {
-      cout << input << endl;
-      ++input;
+   for (int n = 1; n <= QTD; n++) {
+      caixa.receber();
+      this_thread::sleep_for(300ms);
    }
+
+   auto qtd = list.size();
+   cout << "Capturas feitas: " << qtd << endl;
 }
+
 
 int main(int qtd, char* args[], char* vars[]) 
 {
    versao_debug();
-   // incremento_arbitrario_da_entrada();
+   // captura_externa();
 }
 #endif
