@@ -56,22 +56,46 @@ compila-testes-unitarios: compila-objetos test-progresso teste-led test-monitor
 		-c -o build/test-monitor.o src/monitor.cpp
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
+entrada-obj:
+	clang++ -O3 -Oz -g3 -Wall -pedantic -std=gnu++23 \
+		-c -o build/entrada.o src/entrada.cpp
 entrada-test:
-	clang++ -D__unit_tests__ -g3 -O0 -Wall \
+	clang++ -std=c++23 -D__unit_tests__ -g3 -O0 -Wall \
 		-c -o build/entrada-test.o src/entrada.cpp
-	clang++ -o bin/ut_entrada build/entrada-test.o -lcurses
+	clang++ -o bin/ut_entrada build/entrada-test.o -lcurses -lc
+
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
-debug:
-	clang++ -g3 -O0 -Wall -c -o build/entrada-debug.o src/entrada.cpp
+comunicacao-obj:
+	clang++ -Wall -pedantic -std=gnu++23 \
+		-c -o build/comunicacao.o src/comunicacao.cpp
+
+comunicacao-test: entrada-obj
+	clang++ -O0 -g3 -Wall -pedantic -std=gnu++23 -D__unit_tests__ \
+		-c -o build/comunicacao-test.o src/comunicacao.cpp
+	clang++ -o bin/ut_comunicacao build/comunicacao-test.o build/entrada.o \
+		-lcurses
+
+# --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
+debug: entrada-obj comunicacao-obj
 	clang++ -D__unit_tests__ -g3 -O0 -Wall \
 		-c -o build/painel-debug.o src/painel.cpp
 	clang++ -g3 -O0 -Wall -D__unit_tests__ \
 		-c -o build/main-debug.o src/main.cpp
-	clang++ -o bin/debug		   \
+	clang++ -o bin/debug			\
 		build/main-debug.o		\
-		build/entrada-debug.o   \
 		build/painel-debug.o	   \
+		build/entrada.o			\
+		build/comunicacao.o		\
 			-lcurses
+
 release:
 	clang++ -O3 -Wall -c src/entrada.cpp src/painel.cpp src/main.cpp
 	mv -v *.o build/
+
+
+demonstracoes = verificador_de_injecao injetor_de_entradas
+
+$(demonstracoes):
+	clang++ -o bin/$@ src/demo/$@.cpp src/entrada.cpp -lcurses
+
+demos: $(demonstracoes)
