@@ -30,6 +30,7 @@ cria-dirs-do-projeto:
 	@mkdir -p include
 	@mkdir -p build
 	@mkdir -p data
+	@mkdir -p bin/demos
 
 # Iteração que copia/ou compila, um processo mais automatizado.
 $(bibliotecas):
@@ -57,7 +58,7 @@ compila-testes-unitarios: compila-objetos test-progresso teste-led test-monitor
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 entrada-obj:
-	clang++ -O3 -Oz -g3 -Wall -pedantic -std=gnu++23 \
+	g++ -O3 -Oz -g3 -Wall -pedantic -std=gnu++23 \
 		-c -o build/entrada.o src/entrada.cpp
 entrada-test:
 	clang++ -std=c++23 -D__unit_tests__ -g3 -O0 -Wall \
@@ -66,7 +67,7 @@ entrada-test:
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 comunicacao-obj:
-	clang++ -Wall -pedantic -std=gnu++23 \
+	g++ -Wall -pedantic -std=gnu++23 \
 		-c -o build/comunicacao.o src/comunicacao.cpp
 
 comunicacao-test: entrada-obj
@@ -76,7 +77,7 @@ comunicacao-test: entrada-obj
 		-lcurses
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
-debug: entrada-obj comunicacao-obj
+debug:
 	clang++ -D__unit_tests__ -g3 -O0 -Wall \
 		-c -o build/painel-debug.o src/painel.cpp
 	clang++ -g3 -O0 -Wall -D__unit_tests__ \
@@ -92,8 +93,15 @@ release:
 	clang++ -O3 -Wall -c src/entrada.cpp src/painel.cpp src/main.cpp
 	mv -v *.o build/
 
-
+# --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 demonstracoes = verificador_de_injecao injetor_de_entradas
+
+servidor_injetor:
+	g++ -o bin/demos/$@ src/demo/$@.cpp \
+		build/comunicacao.o build/entrada.o -lcurses
+cliente_receptor:
+	clang++ -o bin/demos/$@ src/demo/$@.cpp \
+		build/comunicacao.o build/entrada.o -lcurses
 
 $(demonstracoes):
 	clang++ -o bin/$@ src/demo/$@.cpp src/entrada.cpp -lcurses
