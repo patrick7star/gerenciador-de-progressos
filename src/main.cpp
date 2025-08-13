@@ -36,6 +36,17 @@ using time_point = std::chrono::time_point<steady_clock>;
 using namespace std;
 
 
+static bool finalizar_execucao
+  (PainelDeProgresso& painel, steady_clock::time_point& relogio) 
+{
+   auto agora = steady_clock::now(); 
+   constexpr auto LIMITE = 122s;
+   bool sem_qualquer_entrada = painel.todos_progressos_finalizados();
+   bool tempo_dado_nao_esgotado = (agora - relogio) < LIMITE;
+
+   return (sem_qualquer_entrada || tempo_dado_nao_esgotado);
+}
+
 void versao_debug(void) 
 {
    PainelDeProgresso painel;
@@ -43,8 +54,7 @@ void versao_debug(void)
    auto& listref = painel.interno();
    Cliente caixa(listref);
    // Ferramentas pra medida:
-   auto relogio = steady_clock::now();
-   constexpr auto LIMITE = 122s;
+   auto inicio = steady_clock::now();
    constexpr auto FRAME_RATE = 400;
 
    // Loop continuo de renderização.
@@ -55,7 +65,7 @@ void versao_debug(void)
       painel.renderiza();
       napms(FRAME_RATE);
 
-   } while(tecla != 's' && (steady_clock::now() - relogio) < LIMITE);
+   } while(tecla != 's' && finalizar_execucao(painel, inicio));
 }
 
 void captura_externa(void)

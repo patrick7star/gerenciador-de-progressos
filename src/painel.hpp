@@ -14,6 +14,7 @@ class PainelDeProgresso {
 
    void desenha_moldura(void);
    void desenha_entradas(void);
+   void desenha_status(void);
    // Verifica se alguma 'entrada' está finalizada.
    void remove_entradas_finalizadas(void);
 
@@ -23,6 +24,7 @@ class PainelDeProgresso {
 
    void renderiza();
    bool todos_progressos_finalizados(void);
+   // Retorna a referência de 'Entradas' capturadas que foram enviadas.
    constexpr std::vector<Entrada>& interno(void) 
       { return this->lista; }
 };

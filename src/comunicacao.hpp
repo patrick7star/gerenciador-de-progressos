@@ -16,31 +16,40 @@ class Servidor {
 
  using Queue = std::queue<Entrada*>;
  using Clock = std::chrono::steady_clock;
- using TimePoint = std::chrono::steady_clock::time_point;
+ using TimePoint = Clock::time_point;
 
  private:
    // 'file descriptor' do 'named pipe', onde os dados são enviados.
    int tubulacao;
    // Referência da 'entrada' que sempre transmite seu sinal.
-   // queue<Entrada*> fila;   
    Queue fila;   
    // Cronômetro que registra o tempo necessário prá próxima remessa.
-   // mutable time_point<steady_clock> inicio;
    mutable TimePoint inicio;
 
-   // Diz ao objeto se é hora de enviar.
    bool pronto_pra_envio(void) const;
    void envia_uma_entrada(Entrada& obj) const;
    bool entrada_pertencente(Entrada& obj);
+   void remove_entradas_expiradas(void);
 
  public:
+   // Todos construtores que existem.
    Servidor(void);
+   Servidor(Entrada* pointer);
    ~Servidor(void); 
 
    // Envia todas as 'entradas' no 'pool'.
    void enviar(void); 
    // Adiciona 'entrada' pra ser transmitida, se não estiver finalizada.
    bool adiciona(Entrada* pointer); 
+   /*   O mesmo que dizer que está vázia. Informa que servidor não tem 
+    * qualquer 'entrada' prá envio. */
+   bool sem_entradas(void) const;
+   /*   Informa a quantia atual de 'entradas' que estão ativamente sendo 
+    * transmitidas pelo o 'servidor'.
+    *   Não é apenas quantas você adiciona, porque um tempo após o termino
+    * do progresso de uma, ela apenas expira, e é removida da fila interna
+    * de transmissão. */
+   int quantidade(void) const;
 };
 
 
@@ -50,7 +59,7 @@ class Cliente {
  * sejam atualizadas. */
 
  using Lista = std::vector<Entrada>;
- using Clock = std::chrono::steady_clock;
+ using Clock = std::chrono::system_clock;
  using TimePoint = std::chrono::time_point<Clock>;
 
  private:
@@ -58,6 +67,7 @@ class Cliente {
    int tubo;
    // Referência mutavel a lista de 'Entradas' externa.
    Lista& colecao;
+   Lista expiradas;
    // Cronômetro prá contar até a próxima inserção.
    TimePoint inicio;
    TimePoint tempo;
@@ -65,6 +75,7 @@ class Cliente {
    void insercao_controlada(Entrada& obj);
    void tenta_ler_entrada(Bytes& Out);
    bool permicao_de_leitura(void);
+   void remocao_de_entradas_expiradas(void);
 
  public:
    /* O construtor deve receber uma lista, pra que se aloque todas entradas
@@ -76,5 +87,7 @@ class Cliente {
    /* Lê alguns bytes, e tenta decodifica-lô numa 'entrada'. Se for possível,
     * insere nova, ou apenas atualiza se necessário. */
    bool receber(void); 
+   /* Quantidades de 'Entradas' que já foram expiradas. */
+   int quantidade(void) const;
 };
 #endif

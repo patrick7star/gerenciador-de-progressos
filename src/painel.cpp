@@ -1,5 +1,6 @@
 #include "painel.hpp"
 #include <iostream>
+#include <sstream>
 
 using namespace std;
 
@@ -74,6 +75,19 @@ void PainelDeProgresso::desenha_entradas(void) {
       item.desenha(janela, linha++);
 }
 
+void PainelDeProgresso::desenha_status(void) {
+   int y = getmaxy(stdscr) - 2;
+   ostringstream info;
+   constexpr auto TAB = "  ";
+
+   info << "Ativos: ";
+   info << this->lista.size();
+   info << TAB << "<S-Sair>";
+
+   move(y, 1);
+   addstr(info.str().c_str());
+}
+
 void PainelDeProgresso::renderiza(void) {
 /* Apaga tudo que foi renderizado anteriormente, desenha as bordas e o 
  * cabeçalho, assim como a barra status; as devidas entradas, então 
@@ -81,6 +95,7 @@ void PainelDeProgresso::renderiza(void) {
    erase();
    this->desenha_moldura(); 
    this->desenha_entradas();
+   this->desenha_status();
    refresh();
 }
 

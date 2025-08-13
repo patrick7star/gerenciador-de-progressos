@@ -4,6 +4,8 @@
 // Biblioteca padrão do C++:
 #include <tuple>
 #include <iostream>
+#include <exception>
+#include <system_error>
 // Biblioteca padrão do C:
 #include <cerrno>
 #include <cstring>
@@ -20,20 +22,25 @@ constexpr int Failed = -1;
 // Valores que tanto, o Servidor, como o Cliente, se comunicam.
 constexpr auto RITMO_DE_ENTREGA = 200ms;
 constexpr auto RITMO_DE_RECEPTACAO = 100ms;
+constexpr auto VALIDADE_ENTRADA_ESGOTADA = seconds{17};
+// Apelidos:
+#define Ig ignore
 
 
 static void cria_tubulacao(void) {
 /* Tenta criar o 'named pipe' se não existir. Se já houver, apenas uma 
  * mensagem informando o error será emitida. */
    constexpr int MODE = 0600;
+   auto code = make_error_code(errc::file_exists);
 
    if (mkfifo(PATH.c_str(), MODE) == Failed) {
       switch (errno) {
          case EEXIST:
-            std::cerr << "O named pipeline 'tubulação' já existe.\n"; 
+            throw system_error(code);
             break;
          default:
-            std::cout << "Tubulação criada com sucesso.\n";
+            cerr << "Erro desconhecido até o momento.\n";
+            std::terminate();
       }
    }
 }
@@ -50,18 +57,21 @@ static void cria_tubulacao(void) {
  * == == == == == == == == == == == == == == == == == == == == == == == == */
 bool Servidor::pronto_pra_envio(void) const 
 {
-   auto fim = steady_clock::now();
+/* Apenas permite um envio da entrada se, e somente se, passou-se um tempo
+ * desde o último envio. */
+   auto fim = Clock::now();
    auto comeco = this->inicio;
    auto decorrido = fim - comeco;
-   constexpr auto LIMITE = milliseconds(200);
 
-   if (decorrido > LIMITE)
+   if (decorrido > RITMO_DE_ENTREGA)
       return true;
    return false;
 }
 
 void Servidor::envia_uma_entrada(Entrada& obj) const
 {
+/* Transmissão de uma 'entrada' via tubulação, que aqui é um 'named pipe'. 
+ * monitora possíveis erros durante tal empreendimento. */
    auto tubo = this->tubulacao;
    const auto QTD = MAX_SERIAL;
    auto dados = obj.serializa();
@@ -69,12 +79,15 @@ void Servidor::envia_uma_entrada(Entrada& obj) const
    write(tubo, dados.data(), QTD);
 
    // Recomeça a contagem.
-   this->inicio = steady_clock::now();
-   cout << "Um envio ocorreu.\n";
+   this->inicio = Clock::now();
 }
 
 bool Servidor::entrada_pertencente(Entrada& obj)
 {
+/* Verifica se a 'entrada' que se deseja injetar no servidor já não existe.
+ * Uma função auxíliar para negar inserções. O algoritmo é, totalmente, não
+ * 'thread-safe'. Isso, porque ele remove itens da fila, apesar de colocar
+ * de volta, o estado dela é mudado. */
    auto& fila = (*this).fila;
    int contagem = fila.size();
 
@@ -83,26 +96,142 @@ bool Servidor::entrada_pertencente(Entrada& obj)
       auto item = *itemref;
 
       if (obj == item) 
-         { return false; }
+         { return true; }
 
       fila.pop();
       fila.push(itemref);
    }
-   return true;
+   return false;
+}
+
+static void ajusta_tubulacao(int fd) {
+   // Só poderá acumular no buffer interno 4 'entradas' por vez.
+   int capacidade = fcntl(fd, F_GETPIPE_SZ); 
+   int num_de_paginas = capacidade / MAX_SERIAL;
+   int nova_capacidade = 4 * MAX_SERIAL;
+
+   cout << "Buffer atual: " << capacidade << " bytes" << endl <<
+      "N.º de páginas: " << num_de_paginas << endl;
+
+   num_de_paginas = fcntl(fd, F_GETPIPE_SZ) / nova_capacidade;
+   // Trata erro ao não redimensionar.
+   if (fcntl(fd, F_SETPIPE_SZ, nova_capacidade) == Failed) 
+   {
+      switch(errno) {
+         case EBUSY:
+            auto tipo = errc::device_or_resource_busy;
+            auto codigo = make_error_code(tipo);
+
+            throw system_error(codigo);
+            break;
+         // default:
+         //    cerr << "[erro]" << strerror(errno) << endl;
+         //    terminate();
+      }
+   } else {
+   // Continua a visualização da alteração realizada. 
+      cout << "Buffer atual: " << nova_capacidade << " bytes" << endl <<
+         "N.º de páginas: " << num_de_paginas << endl;
+   }
+}
+
+void Servidor::remove_entradas_expiradas(void) {
+/* Retira 'entradas' que terminaram, já passado um período de tempo. */
+   using time_point = system_clock::time_point;
+
+   auto agora = system_clock::now();
+   auto total = this->fila.size();
+   time_point termino;
+   bool pronto;
+   const auto LIMITE{17s};
+
+   while (total-- > 0) {
+      auto entry = this->fila.front();   
+      tie(ignore, termino, pronto) = (*entry).getTPAtributos();
+      auto decorrido = agora - termino;
+      auto decorrido_seg = duration_cast<seconds>(decorrido);
+      
+      this->fila.pop();
+
+      if (pronto && decorrido_seg > LIMITE)
+      // Se, após o término, e um tempo passado, tal 'entrada' não serve
+      // mais prá transmitir.
+         continue;
+      else 
+         this->fila.push(entry);
+   }
 }
 
 Servidor::Servidor(void) {
+   try 
+      { cria_tubulacao(); } 
+   catch(const system_error& excecao) { 
+      if (excecao.code() == errc::file_exists)
+          { cout << "Já tem arquivo!\n"; }
+      else
+         throw excecao;
+   }
+
    // Começa a contar.
-   this->inicio = steady_clock::now();
+   this->inicio = Clock::now();
    // Abre o 'file descriptor' emissor de dados.
    this->tubulacao = open(PATH.c_str(), O_RDWR);
 
-   cria_tubulacao();
+   if (this->tubulacao == Failed) {
+      char* errostr = strerror(errno);
+      auto msg_erro = string(errostr);
+      auto tipo = errc::io_error;
+      auto code = make_error_code(tipo);
+
+      throw system_error(code, msg_erro);
+   }
+
+   try {
+      ajusta_tubulacao(this->tubulacao);
+
+   } catch(const system_error& excecao) {
+      if (excecao.code() == errc::device_or_resource_busy)
+         cerr << "O buffer ficará com a capacidade inicial.\n";
+   }
+}
+
+Servidor::Servidor(Entrada* pointer) {
+// Construtor que já vem com uma 'entrada' interna.
+   try 
+      { cria_tubulacao(); } 
+   catch(const system_error& excecao) { 
+      if (excecao.code() == errc::file_exists)
+          { cout << "Já tem arquivo!\n"; }
+      else
+         throw excecao;
+   }
+
+   // Começa a contar.
+   this->inicio = Clock::now();
+   // Abre o 'file descriptor' emissor de dados.
+   this->tubulacao = open(PATH.c_str(), O_RDWR);
 
    if (this->tubulacao == Failed) {
-      cerr << strerror(errno) << endl;
-      std::terminate();
+      char* errostr = strerror(errno);
+      auto msg_erro = string(errostr);
+      auto tipo = errc::io_error;
+      auto code = make_error_code(tipo);
+
+      throw system_error(code, msg_erro);
    }
+
+   try {
+      ajusta_tubulacao(this->tubulacao);
+
+   } catch(const system_error& excecao) {
+      if (excecao.code() == errc::device_or_resource_busy)
+         cerr << "O buffer ficará com a capacidade inicial.\n";
+   }
+
+   if (this->adiciona(pointer))
+      cout << "Servidor com 'Entrada' criada com sucesso.\n";
+   else
+      cout << "Apenas o servidor foi possível criar.\n";
 }
 
 Servidor::~Servidor(void) {
@@ -111,6 +240,10 @@ Servidor::~Servidor(void) {
 }
 
 void Servidor::enviar(void) {
+/* Envia o 'status' de cada 'entrada'. Como elas estão numa fila, o processo
+ * pra realizar isso é um pouco, vamos dizer, "anti-multithreading". Ele
+ * remove uma 'entrada', transmite os dados dela, e coloca novamente na 
+ * fila. */
    auto& fila = this->fila;
    auto quantia = fila.size();
 
@@ -126,14 +259,28 @@ void Servidor::enviar(void) {
          fila.push(entryref);
       }
    }
+   this->remove_entradas_expiradas();
 }
 
 bool Servidor::adiciona(Entrada* pointer) {
+/* Adição de uma nova 'entrada'. Ele negará qualquer uma que já tenha na 
+ * fila interna, ou já tenha sido expirada. */
    auto& fila = this->fila;
 
-   fila.push(pointer); 
-   return true;
+   if (!this->entrada_pertencente(*pointer)) {
+      fila.push(pointer); 
+      return true;
+   } else
+      return false;
 }
+
+bool Servidor::sem_entradas(void) const
+// Informa que o servidor não tem nada a enviar.
+   { return this->fila.empty(); }
+
+int Servidor::quantidade(void) const 
+// Informa 'entradas' restantes na grande fila de transmissão.
+   { return this->fila.size(); }
 
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                        Cliente(Recebe as Entradas)
@@ -156,14 +303,29 @@ void Cliente::insercao_controlada(Entrada& obj)
       tie(atual, ignore, ignore) = entry.getIntAtributos();
       tie(Atual, ignore, ignore) = obj.getIntAtributos();
 
+      /* Igualdade significa pertencimento. Más nem sempre! Ele pode ser
+       * uma igualdade, mas com valores mais atualizados, neste caso, será
+       * realizado uma atualização do local na array interna. */
       if (obj == entry) {
-         if (Atual > atual)
-         // Atualiaza valor na array, se 'obj' passado é mais adiantado.
+         if (obj >= entry) {
             this->colecao[cursor] = obj;
-         return;
+            return;
+         } else
+            return;
       }
       cursor++;
    }
+
+   /* Mesma varredura, só que na outra lista interna. A lista das 'entradas'
+    * que não valem mais. */
+   cursor = 0;
+
+   /* Também não adiciona se a 'entrada' está na "seção" de expirados. */
+   for (Entrada& entry: this->expiradas) {
+      if (obj == entry) 
+         return;
+   }
+
    this->colecao.push_back(obj);
 }
 
@@ -189,22 +351,29 @@ Cliente::Cliente(vector<Entrada>& lista): colecao(lista) {
  */
    auto caminho = PATH.c_str();
 
-   cria_tubulacao();
+   try {
+      cria_tubulacao();
+   } catch (const system_error& excecao) {
+      if (excecao.code() != errc::file_exists)
+         throw excecao;
+   } catch(const exception& outra)
+      { throw outra; }
+
    this->tubo = open(caminho, O_RDWR | O_NONBLOCK);
-   this->inicio = steady_clock::now();
-   this->tempo = steady_clock::now();
+   this->inicio = Clock::now();
+   this->tempo = Clock::now();
 }
 
 bool Cliente::permicao_de_leitura(void) {
 /* Dá a confirmação de quando o possível tentar ler alguns bytes. Ele não 
  * cuida essencialmente da leitura, apenas da permição de leitura. */
    auto inicio = this->inicio;
-   auto fim = steady_clock::now();
+   auto fim = system_clock::now();
    
    if ((fim - inicio) > RITMO_DE_RECEPTACAO) 
    {
       // Reseta relógio após confirmação de condição.
-      this->inicio = steady_clock::now();
+      this->inicio = system_clock::now();
       return true;
    }
    // Se o codicional não foi acionado, então o tempo decorrido ainda não
@@ -214,23 +383,10 @@ bool Cliente::permicao_de_leitura(void) {
 
 bool Cliente::receber(void) {
 /* Abre a porta por alguns instantes para o recebimento de dados. */
-   // auto fim = steady_clock::now();
-   // auto decorrido = fim - this->inicio;
    Bytes buffer;
 
-   /*
-   if (decorrido > RITMO_DE_RECEPTACAO) {
-      try {
-         this->tenta_ler_entrada(buffer);
-         auto conversao = Entrada::deserializa(buffer);
-         this->insercao_controlada(conversao);
-      } catch (invalid_argument& erro) {
-         // cout << "[error]" << erro.what() << endl;
-      }
-      this->inicio = steady_clock::now();
-      // Informação operação de leitura como um sucesso.
-      return true;
-   }*/
+   this->remocao_de_entradas_expiradas();
+
    if (this->permicao_de_leitura()) 
    {
       try {
@@ -242,7 +398,6 @@ bool Cliente::receber(void) {
          return true;
 
       } catch (invalid_argument& erro) {
-         // cout << "[error]" << erro.what() << endl;
          return false;
       }
    }
@@ -254,13 +409,62 @@ Cliente::~Cliente(void) {
 /* Não apenas fecha o 'named pipe' que foi aberto para leitura; ele também
  * mostra algumas outras informações. */
    auto inicio = this->tempo;
-   auto fim = steady_clock::now();
+   auto fim = Clock::now();
    auto decorrido = fim - inicio;
    auto seg = duration_cast<seconds>(decorrido);
 
    close(this->tubo);
    cout << "Tempo em aberto " << seg.count() << "seg\n";
 }
+
+static void remove_de_uma_lista_e_coloca_na_outra
+  (int posicao, vector<Entrada>& In, vector<Entrada>& Out)
+{
+// Realiza típica remoção do item numa array, e inserção numa 'pilha'.
+   int ultimo = static_cast<int>(In.size()) - 1;
+
+   // Coloca entrada escolhida, via posição, na 'lista de expirados'.
+   Out.push_back(In[posicao]);
+   // Copia todos itens posteriores a ele, uma posição à frente.
+   for (int n = posicao; n < ultimo; n++)
+      In[n] = In[n + 1];
+   // Então remove o último, que é um clone.
+   In.pop_back();
+}
+
+static bool entrada_ja_esta_expirada
+  (Entrada& entry, system_clock::time_point agora) 
+{
+/* Se tal entrada está como esgotada, e seu tempo desde de tal termino, 
+ * ultrapassou um "limite" imposto, então, ele simplesmente marca tal 
+ * 'entrada' como expirada. 
+ */
+   bool finalizada, passou_prazo;
+   seconds decorrido; 
+   system_clock::time_point fim;
+
+   tie(Ig, fim, finalizada) = entry.getTPAtributos();
+   decorrido = duration_cast<seconds>(agora - fim);
+   passou_prazo = (decorrido > VALIDADE_ENTRADA_ESGOTADA);
+
+   return (finalizada && passou_prazo); 
+}
+
+void Cliente::remocao_de_entradas_expiradas(void) {
+   TimePoint agora = Clock::now();
+   int posicao = 0;
+
+   for (auto entry: (*this).colecao) 
+   {
+      if (entrada_ja_esta_expirada(entry, agora))
+         remove_de_uma_lista_e_coloca_na_outra
+           (posicao, (*this).colecao, (*this).expiradas);
+      posicao++;
+   }
+}
+
+int Cliente::quantidade(void) const
+   { return static_cast<int>(this->expiradas.size()); }
 
 #ifdef __linux__
 #ifdef __unit_tests__
@@ -287,8 +491,8 @@ int main(void) {
       cout << "Dados enviados.\n";
 
       server.enviar();
-      ++a;
-      ++b;
+      a += 10;
+      b += 10;
       sleep_for(1100ms);
       client.receber();
    }
