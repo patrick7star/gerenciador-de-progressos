@@ -8,15 +8,17 @@
 
 
 class PainelDeProgresso {
+ using Clock = std::chrono::system_clock;
+ using TimePoint = Clock::time_point;
+
  private:
    // Todos progressos capturados:
    std::vector<Entrada> lista;
+   TimePoint comeco;
 
    void desenha_moldura(void);
    void desenha_entradas(void);
    void desenha_status(void);
-   // Verifica se alguma 'entrada' está finalizada.
-   void remove_entradas_finalizadas(void);
 
  public:
    PainelDeProgresso(void);
@@ -24,6 +26,8 @@ class PainelDeProgresso {
 
    void renderiza();
    bool todos_progressos_finalizados(void);
+   bool permissao_pra_rodar(void);
+
    // Retorna a referência de 'Entradas' capturadas que foram enviadas.
    constexpr std::vector<Entrada>& interno(void) 
       { return this->lista; }

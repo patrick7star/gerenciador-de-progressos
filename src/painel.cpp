@@ -35,6 +35,7 @@ PainelDeProgresso::PainelDeProgresso(void) {
    configura_janela();
    inicia_paleta_de_cores();
 
+   this->comeco = Clock::now();
    this->renderiza();
 }
 
@@ -76,13 +77,21 @@ void PainelDeProgresso::desenha_entradas(void) {
 }
 
 void PainelDeProgresso::desenha_status(void) {
+   using std::chrono::seconds;
+   using std::chrono::duration_cast;
+
    int y = getmaxy(stdscr) - 2;
    ostringstream info;
    constexpr auto TAB = "  ";
+   auto agora = Clock::now();
+   auto comeco = this->comeco;
+   auto passados = agora - comeco;
+   auto decorrido = duration_cast<seconds>(passados);
 
    info << "Ativos: ";
    info << this->lista.size();
    info << TAB << "<S-Sair>";
+   info << TAB << decorrido.count() << "seg";
 
    move(y, 1);
    addstr(info.str().c_str());
@@ -108,16 +117,6 @@ void PainelDeProgresso::renderiza(void) {
 /* == == == == == == == == == == == == == == == == == == == == == == == == ==
  *                            Métodos privados
  * == == == == == == == == == == == == == == == == == == == == == == == == */
-void PainelDeProgresso::remove_entradas_finalizadas(void) {
-   int qtd = this->lista.size();
-   vector<Entrada> nao_finalizados(qtd);
-
-   for (Entrada& e: this->lista) {
-      if (e.percentual() < 1.0)
-         nao_finalizados.push_back(e);
-   }
-   this->lista = nao_finalizados;
-}
 
 bool PainelDeProgresso::todos_progressos_finalizados(void) {
 /* Diz se todos os 'processos' estão finalizados, se algum não estiver, 
@@ -128,4 +127,16 @@ bool PainelDeProgresso::todos_progressos_finalizados(void) {
          return false;
    }
    return true;
+}
+
+bool PainelDeProgresso::permissao_pra_rodar(void)
+{
+   auto agora = Clock::now(); 
+   constexpr auto LIMITE = 122s;
+   auto relogio = (*this).comeco;
+   auto duracao = (agora - relogio);
+   bool tempo_dado_nao_esgotado = duracao < LIMITE;
+   bool ha_ainda_entradas = (*this).lista.size() > 0;
+
+   return (ha_ainda_entradas || tempo_dado_nao_esgotado);
 }
