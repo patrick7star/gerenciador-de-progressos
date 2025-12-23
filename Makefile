@@ -80,18 +80,36 @@ comunicacao-test: entrada-obj
 debug:
 	clang++ -D__unit_tests__ -g3 -O0 -Wall \
 		-c -o build/painel-debug.o src/painel.cpp
-	clang++ -g3 -O0 -Wall -D__unit_tests__ \
+	clang++ -g3 -O0 -Wall -D__unit_tests__ -D__debug__ \
 		-c -o build/main-debug.o src/main.cpp
-	clang++ -o bin/debug			\
-		build/main-debug.o		\
-		build/painel-debug.o	   \
-		build/entrada.o			\
-		build/comunicacao.o		\
+	clang++ -v -o bin/debug			\
+		build/main-debug.o			\
+		build/painel-debug.o			\
+		build/entrada.o				\
+		build/comunicacao.o			\
 			-lcurses
 
-release:
-	clang++ -O3 -Wall -c src/entrada.cpp src/painel.cpp src/main.cpp
-	mv -v *.o build/
+release: cria-dirs-do-projeto entrada-obj comunicacao-obj
+	@clang++ -Ilib/ -O3 -Oz -Wall							\
+		-c -o build/painel-release.o src/painel.cpp
+	@echo "Objeto painel-release criado."
+	@clang++ -Ilib/ -O3 -Oz -Wall -D__unit_tests__	\
+		-c -o build/main-release.o src/main.cpp
+	@echo "Objeto main-release gerado."
+	@clang++ -Ilib/ -o bin/release	\
+		build/main-release.o				\
+		build/painel-release.o			\
+		build/entrada.o					\
+		build/comunicacao.o				\
+			-lcurses -L ./lib -llegivel
+	@echo "Todos objetos lincados em 'release' e 'painel-de-progressos'."
+	@ln -T bin/release  bin/painel-de-progressos
+	@echo "Um nome melhor dado a tal binário: 'painel-de-progressos'."
+
+# Funciona apenas para um sistema Linux, com um sistema gráfico, que tenha 
+# o 'mate-terminal' versão 1.26.1.
+run-release:
+	@mate-terminal --zoom=1.0 --window --command 'bin/release'
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --
 demonstracoes = verificador_de_injecao injetor_de_entradas
